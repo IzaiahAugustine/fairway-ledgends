@@ -1,0 +1,9 @@
+node_modules
+dist
+_dl
+*.blend1
+.playwright-mcp
+blender/__pycache__
+.shots
+.preview-dist
+blender/renders

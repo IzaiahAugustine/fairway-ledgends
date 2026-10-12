@@ -1,0 +1,802 @@
+// Front-end screens: main menu, match setup (course + difficulty), golfer editor, club bag /
+// upgrade shop, settings, pause and results.
+import '@fontsource/barlow-condensed/600.css';
+import '@fontsource/barlow-condensed/700.css';
+import '@fontsource/barlow-condensed/800.css';
+import '@fontsource-variable/inter';
+import { sfx } from '../audio/sfx';
+import { toYards } from '../core/rng';
+import { persist, playerLevel, resetSave, save, type Appearance, type Difficulty, type TextSize } from '../core/save';
+import { CLUBS, MAX_TIER, SHOT_TYPES, TIERS, upgradeCost } from '../data/clubs';
+import { COURSES, courseById, coursePar, courseYards, type CourseDef } from '../data/courses';
+import { fullCarry } from '../game/shotModel';
+import { computeXp, type MatchState } from '../game/match';
+import { Surf } from '../world/holeGen';
+import { clear, esc, h } from './dom';
+
+export interface MenuHooks {
+  startMatch(courseId: string, difficulty: Difficulty): void;
+  previewAppearance(a: Appearance): void;
+  showroom(mode: 'menu' | 'editor' | 'shop' | 'none'): void;
+  settingsChanged(): void;
+  resume(): void;
+  quitMatch(): void;
+}
+
+const SKIN = ['#f6d3b8', '#f1c6a6', '#e0ac82', '#c68a62', '#a8714a', '#8a5636', '#6b4128', '#4a2c1c'];
+const HAIR = ['#0f0c0a', '#2a1d14', '#3b2a1e', '#6b4a2a', '#9a6a38', '#c9a066', '#e3cf9e', '#8a8a8a', '#d9d9d9', '#7a2a16'];
+const CLOTH = ['#f2f2f0', '#111111', '#1c2b4a', '#0b3d91', '#2a8fbd', '#1f6f43', '#6fae46', '#b5121b', '#e86a10', '#f2c14e', '#6a1b9a', '#e86fa0', '#8a8a8a', '#e8e2d0', '#5a3a22'];
+
+const DIFF_INFO: Record<Difficulty, { name: string; desc: string; pips: number }> = {
+  easy: { name: 'Easy', pips: 1, desc: 'Very forgiving swing timing, mistakes barely hurt. Full shot and putt previews, 4 ft gimmes. Opponent uses Rusty clubs and makes plenty of mistakes.' },
+  medium: { name: 'Medium', pips: 2, desc: 'Forgiving swing timing. Shot preview with roll-out, most of the putt line, 3 ft gimmes. Opponent is a steady club golfer with Clubhouse clubs.' },
+  hard: { name: 'Hard', pips: 3, desc: 'Tighter swing timing, carry-only shot preview, short putt line. Opponent is a strong amateur with Tour clubs.' },
+};
+
+// inline line icons (24px grid, stroked with currentColor)
+const svg = (body: string) =>
+  `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const ICON = {
+  golfer: svg('<circle cx="12" cy="7.6" r="3.4"/><path d="M8.2 6.3h8.8"/><path d="M4.8 21c.7-4.3 3.6-7 7.2-7s6.5 2.7 7.2 7"/>'),
+  bag: svg('<path d="M8 9.5h8l-.9 10.7a1.6 1.6 0 0 1-1.6 1.3h-3a1.6 1.6 0 0 1-1.6-1.3Z"/><path d="M9.6 9.5V4M12 9.5V2.8M14.3 9.5l1.6-5"/><path d="M8.5 14h7"/>'),
+  sliders: svg('<path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/>'),
+  pad: svg('<path d="M7.5 6.5h9a5.5 5.5 0 0 1 0 11h-9a5.5 5.5 0 0 1 0-11Z"/><path d="M7.5 10.2v3.6M5.7 12h3.6"/><circle cx="15.6" cy="10.8" r=".7" fill="currentColor"/><circle cx="17.6" cy="13" r=".7" fill="currentColor"/>'),
+  back: svg('<path d="M14.5 5.5 8 12l6.5 6.5"/>'),
+  chevron: svg('<path d="M9.5 5.5 16 12l-6.5 6.5"/>'),
+  play: svg('<path d="M8 5.8v12.4L18 12Z" fill="currentColor"/>'),
+  trophy: svg('<path d="M8 4h8v5a4 4 0 0 1-8 0Z"/><path d="M8 6H5.2a2.8 2.8 0 0 0 2.9 3.6M16 6h2.8a2.8 2.8 0 0 1-2.9 3.6M12 13v3.5M8.5 20h7M10 16.5h4"/>'),
+  star: svg('<path d="m12 3.6 2.5 5.2 5.7.8-4.1 4 1 5.6L12 16.5l-5.1 2.7 1-5.6-4.1-4 5.7-.8Z" fill="currentColor" fill-opacity=".25"/>'),
+  check: svg('<path d="m5.5 12.5 4.2 4.2 8.8-9.2"/>'),
+  exit: svg('<path d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14"/><path d="M10 16.5 5.5 12 10 7.5M5.5 12H15"/>'),
+  again: svg('<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4.2h-4.2"/>'),
+  home: svg('<path d="m4 11 8-7 8 7"/><path d="M6.5 9.5V20h11V9.5"/>'),
+  rotate: svg('<path d="M4.5 12a7.5 7.5 0 0 1 13.2-4.9"/><path d="M18.5 3.5v4h-4"/><path d="M19.5 12a7.5 7.5 0 0 1-13.2 4.9"/><path d="M5.5 20.5v-4h4"/>'),
+};
+
+let crestN = 0;
+/** Shield crest with a pin flag on a green; gradient ids are unique per instance. */
+function crest(): string {
+  const g = `crg${++crestN}`, f = `crf${crestN}`;
+  return `<svg class="crest" viewBox="0 0 64 74" aria-hidden="true"><defs>
+    <linearGradient id="${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe9a8"/><stop offset=".5" stop-color="#f2c14e"/><stop offset="1" stop-color="#b8862b"/></linearGradient>
+    <linearGradient id="${f}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#23854f"/><stop offset="1" stop-color="#092c1f"/></linearGradient></defs>
+    <path d="M32 3 59 11v23c0 18.6-12.4 30.8-27 37C17.4 64.8 5 52.6 5 34V11Z" fill="url(#${f})" stroke="url(#${g})" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M32 9.6 53 15.9V34c0 14.6-9.3 24.7-21 30.3C20.3 58.7 11 48.6 11 34V15.9Z" fill="none" stroke="url(#${g})" stroke-opacity=".45"/>
+    <ellipse cx="32" cy="52" rx="15.5" ry="4.2" fill="#3fae6e"/>
+    <path d="M27 52V22" stroke="#f6f2e4" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M28 22.4 43 28l-15 5.6Z" fill="url(#${g})"/>
+    <circle cx="37" cy="50.8" r="2.1" fill="#fff"/>
+    <path d="M32 11.8l.85 2.43 2.57.06-2.04 1.56.74 2.46L32 16.85l-2.12 1.46.74-2.46-2.04-1.56 2.57-.06Z" fill="url(#${g})"/>
+  </svg>`;
+}
+
+/** Circular level badge: level number inside a ring filled to the progress fraction. */
+function ring(level: number, frac: number): string {
+  const c = 2 * Math.PI * 27;
+  return `<div class="lv-ring"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="27" class="trk"/><circle cx="32" cy="32" r="27" class="val" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - frac)).toFixed(1)}"/></svg><span><small>Level</small><b>${level}</b></span></div>`;
+}
+
+const pips = (n: number, on: number) => `<span class="pips">${Array.from({ length: n }, (_, i) => `<i class="${i < on ? 'on' : ''}"></i>`).join('')}</span>`;
+
+/** Average club tier across the bag (0 = Rusty .. MAX_TIER). */
+const bagTier = () => CLUBS.reduce((a, c) => a + (save.clubs[c.id] ?? 0), 0) / CLUBS.length;
+
+/** Re-renders a block, then puts keyboard focus back on the element with the same data-k. */
+function keepFocus(render: () => void) {
+  const k = (document.activeElement as HTMLElement | null)?.dataset?.k;
+  render();
+  if (k) document.querySelector<HTMLElement>(`[data-k="${CSS.escape(k)}"]`)?.focus();
+}
+
+// elements reachable with the arrow keys
+const NAV = 'button:not([disabled]), .nav, input[type=range]';
+const DIRS: Record<string, [number, number]> = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+
+function courseArt(c: CourseDef): HTMLCanvasElement {
+  const cv = h('canvas', { width: '480', height: '300' });
+  const ctx = cv.getContext('2d')!;
+  const sky = ctx.createLinearGradient(0, 0, 0, 300);
+  const hexc = (n: number) => '#' + n.toString(16).padStart(6, '0');
+  if (c.id === 'pebble') { sky.addColorStop(0, '#f6c890'); sky.addColorStop(0.6, '#9cc6e6'); }
+  else if (c.id === 'standrews') { sky.addColorStop(0, '#9aa9b8'); sky.addColorStop(0.6, '#d7dde2'); }
+  else { sky.addColorStop(0, '#5d9fd8'); sky.addColorStop(0.65, '#cfe3f2'); }
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, 480, 300);
+  let seed = c.id.length * 97;
+  const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+  if (c.style === 'coastal') {
+    ctx.fillStyle = '#2a6d8f';
+    ctx.fillRect(0, 160, 480, 140);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    for (let i = 0; i < 30; i++) ctx.fillRect(rnd() * 480, 165 + rnd() * 120, 20 + rnd() * 30, 1.5);
+  }
+  // rolling land layers
+  const layers = [hexc(c.colors.deep), hexc(c.colors.rough), hexc(c.colors.fairway)];
+  layers.forEach((col, li) => {
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    const base = 150 + li * 45;
+    ctx.moveTo(c.style === 'coastal' ? 140 + li * 30 : 0, 300);
+    for (let x = c.style === 'coastal' ? 140 + li * 30 : 0; x <= 480; x += 10) ctx.lineTo(x, base + Math.sin(x * 0.012 + li * 2) * (10 + c.dunes * 4) + Math.sin(x * 0.05 + li) * 3);
+    ctx.lineTo(480, 300);
+    ctx.fill();
+  });
+  // trees
+  for (let i = 0; i < (c.style === 'parkland' ? 26 : c.style === 'coastal' ? 9 : 4); i++) {
+    const x = rnd() * 480, y = 150 + rnd() * 40, s = 14 + rnd() * 18;
+    ctx.fillStyle = '#3a2a1a';
+    ctx.fillRect(x - 1.5, y, 3, s * 0.5);
+    ctx.fillStyle = c.style === 'coastal' ? '#2c4a2c' : '#2f5a28';
+    ctx.beginPath();
+    if (c.style === 'coastal') ctx.ellipse(x, y - s * 0.1, s * 0.9, s * 0.3, 0, 0, Math.PI * 2);
+    else ctx.arc(x, y - s * 0.3, s * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // green + flag
+  ctx.fillStyle = hexc(c.colors.green);
+  ctx.beginPath();
+  ctx.ellipse(330, 245, 70, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = hexc(c.colors.sand);
+  ctx.beginPath();
+  ctx.ellipse(250, 255, 28, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(336, 195, 2, 50);
+  ctx.fillStyle = '#ffd400';
+  ctx.beginPath();
+  ctx.moveTo(338, 196);
+  ctx.lineTo(362, 203);
+  ctx.lineTo(338, 210);
+  ctx.fill();
+  return cv;
+}
+
+export class Menus {
+  private root: HTMLElement;
+  private screen: HTMLElement | null = null;
+  private selCourse = save.settings.courseId;
+  private selDiff: Difficulty = save.settings.difficulty;
+  /** Last input came from the keyboard: new screens then focus their default item. */
+  private kbd = false;
+  /** Pause-menu context: Esc belongs to the round (toggles pause), not to our Back buttons. */
+  private inMatch = false;
+  /** Main-menu tile to re-highlight when coming back from a sub-screen. */
+  private mainFocus = 'play';
+
+  constructor(parent: HTMLElement, private hooks: MenuHooks) {
+    this.root = h('div', { class: 'menus' });
+    parent.append(this.root);
+    window.addEventListener('keydown', (e) => this.onKey(e));
+    window.addEventListener('pointerdown', () => (this.kbd = false), true);
+  }
+
+  private set(el: HTMLElement) {
+    clear(this.root);
+    this.screen = el;
+    el.classList.add('enter');
+    setTimeout(() => el.classList.remove('enter'), 800);
+    this.root.append(el);
+    if (this.kbd) requestAnimationFrame(() => this.screen === el && this.focusDefault());
+  }
+
+  hide() {
+    clear(this.root);
+    this.screen = null;
+  }
+
+  get visible() {
+    return this.screen !== null;
+  }
+
+  // ---------------------------------------------------------------- keyboard navigation
+
+  private onKey(e: KeyboardEvent) {
+    if (e.key in DIRS || e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') this.kbd = true;
+    if (!this.screen || e.defaultPrevented) return;
+    const t = e.target as HTMLElement;
+    if (e.key === 'Escape') {
+      const back = this.inMatch ? null : this.root.querySelector<HTMLElement>('.btn-back');
+      if (back) {
+        e.preventDefault();
+        back.click();
+      }
+      return;
+    }
+    const dir = DIRS[e.key];
+    if (dir) {
+      if (t instanceof HTMLInputElement && t.type === 'range' && dir[0] !== 0) return; // sliders keep left/right
+      if (this.move(dir[0], dir[1])) e.preventDefault();
+      return;
+    }
+    if ((e.key === 'Enter' || e.key === ' ') && t.classList?.contains('nav')) {
+      e.preventDefault();
+      (t.querySelector<HTMLElement>('input[type=color]') ?? t).click();
+    }
+  }
+
+  private navItems() {
+    return [...this.root.querySelectorAll<HTMLElement>(NAV)].filter((el) => el.getClientRects().length > 0);
+  }
+
+  private focusDefault() {
+    const items = this.navItems();
+    const el = items.find((x) => x.hasAttribute('data-autofocus')) ?? items[0];
+    el?.focus();
+  }
+
+  /** Spatial navigation: focus the nearest item in the pressed direction. */
+  private move(dx: number, dy: number): boolean {
+    const items = this.navItems();
+    if (!items.length) return false;
+    const cur = document.activeElement as HTMLElement | null;
+    if (!cur || !items.includes(cur)) {
+      this.focusDefault();
+      return true;
+    }
+    const a = cur.getBoundingClientRect();
+    let best: HTMLElement | null = null;
+    let bestScore = Infinity;
+    for (const el of items) {
+      if (el === cur) continue;
+      const b = el.getBoundingClientRect();
+      const centre = dx ? (b.left + b.right - a.left - a.right) * dx : (b.top + b.bottom - a.top - a.bottom) * dy;
+      const along = dx > 0 ? b.left - a.right : dx < 0 ? a.left - b.right : dy > 0 ? b.top - a.bottom : a.top - b.bottom;
+      if (centre <= 0 || along < -6) continue;
+      const across = dx ? Math.max(0, b.top - a.bottom, a.top - b.bottom) : Math.max(0, b.left - a.right, a.left - b.right);
+      if (dx && across > Math.max(a.height, b.height) * 0.5) continue; // left/right stays on the same row
+      const off = dx ? Math.abs(b.top + b.bottom - a.top - a.bottom) : Math.abs(b.left + b.right - a.left - a.right);
+      const score = along + across * 4 + off * 0.05;
+      if (score < bestScore) {
+        bestScore = score;
+        best = el;
+      }
+    }
+    if (best) {
+      best.focus({ preventScroll: true });
+      best.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    }
+    return true;
+  }
+
+  // ---------------------------------------------------------------- shared pieces
+
+  private pageHead(kicker: string, title: string, sub: string, back: () => void, right?: HTMLElement): HTMLElement {
+    const head = h('div', { class: 'page-head' });
+    const bk = h('button', { class: 'btn-back' });
+    bk.innerHTML = `${ICON.back}<span>Back</span>${this.inMatch ? '' : '<i class="kc">Esc</i>'}`;
+    bk.onclick = back;
+    const t = h('div', { class: 'ph-text' });
+    t.innerHTML = `<div class="kicker">${kicker}</div><h1>${title}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}`;
+    head.append(t, h('div', { class: 'ph-right' }, right, bk));
+    return head;
+  }
+
+  private sectionTitle(n: number, text: string) {
+    return h('div', { class: 'section-title' }, h('span', { class: 'n' }, String(n).padStart(2, '0')), text);
+  }
+
+  private playerCard(): HTMLElement {
+    const lv = playerLevel(save.xpEarned);
+    const st = save.stats;
+    const avg = bagTier();
+    const el = h('div', { class: 'mm-player rise-r' });
+    el.innerHTML = `${ring(lv.level, lv.into / lv.next)}
+      <div class="who"><div class="nm">${esc(save.name)}</div>
+        <div class="rec"><b>${st.won}</b>W &nbsp;<b>${st.lost}</b>L &nbsp;<b>${st.halved}</b>H<span class="sep"></span>${st.played} played</div></div>
+      <div class="xprow"><div class="xpbar"><i style="width:${Math.round((lv.into / lv.next) * 100)}%"></i></div>
+        <span>${lv.into.toLocaleString()} / ${lv.next.toLocaleString()} XP to level ${lv.level + 1}</span></div>
+      <div class="pstats">
+        <div class="gold"><small>XP to spend</small><b>${save.xp.toLocaleString()}</b></div>
+        <div><small>Bag</small><b class="tier-${Math.round(avg)}">${TIERS[Math.round(avg)].name}</b>${pips(TIERS.length, Math.floor(avg + 1e-6) + 1)}</div>
+        <div><small>All-time XP</small><b>${save.xpEarned.toLocaleString()}</b></div>
+      </div>`;
+    return el;
+  }
+
+  // ---------------------------------------------------------------- main menu
+
+  showMain() {
+    this.hooks.showroom('menu');
+    this.inMatch = false;
+    const el = h('div', { class: 'screen menu-main' });
+    const brand = h('div', { class: 'mm-brand rise' });
+    brand.innerHTML = `${crest()}<div><div class="wordmark"><span>Fairway</span><span class="w2">Legends</span></div>
+      <div class="mm-tagline">Match Play<i></i>9 Holes<i></i>You vs The Tour</div></div>`;
+    const col = h('div', { class: 'mm-col' });
+    const go = (key: string, fn: () => void) => () => {
+      this.mainFocus = key;
+      fn();
+    };
+    const auto = (x: HTMLElement) => {
+      if (x.dataset.k === this.mainFocus) x.dataset.autofocus = '';
+      return x;
+    };
+
+    const play = auto(h('button', { class: 'mm-play rise', style: '--i:1', 'data-k': 'play' }));
+    play.innerHTML = `<span class="k">1v1 Match Play</span><span class="t">Play Match</span>
+      <span class="d">Choose a course and difficulty, then take on the Tour.</span><span class="go">${ICON.chevron}</span>`;
+    play.onclick = go('play', () => this.showPlay());
+
+    // quick start on the last course with the saved difficulty
+    const course = courseById(save.settings.courseId);
+    const diff = save.settings.difficulty;
+    const feat = auto(h('button', { class: 'mm-feature rise', style: '--i:2', 'data-k': 'quick' }));
+    const art = h('span', { class: 'art' });
+    art.append(courseArt(course));
+    const info = h('span', { class: 'info' });
+    info.innerHTML = `<span class="k">Quick Play · ${DIFF_INFO[diff].name}</span><span class="nm">${esc(course.name)}</span>
+      <span class="meta"><span>Par <b>${coursePar(course)}</b></span><span><b>${courseYards(course).toLocaleString()}</b> yds</span><span>Wind <b>${course.windMin}-${course.windMax}</b></span></span>
+      ${save.best[course.id] ? `<span class="best">${ICON.trophy}Best: ${esc(save.best[course.id])}</span>` : `<span class="loc">${esc(course.location)}</span>`}`;
+    const tee = h('span', { class: 'tee' });
+    tee.innerHTML = `<span>Tee Off</span>${ICON.play}`;
+    feat.append(art, info, tee);
+    feat.onclick = go('quick', () => this.hooks.startMatch(course.id, diff));
+
+    const tiles = h('div', { class: 'mm-tiles' });
+    const tile = (i: number, key: string, icon: string, title: string, desc: string, fn: () => void, badge = '') => {
+      const x = auto(h('button', { class: 'mm-tile rise', style: `--i:${i}`, 'data-k': key }));
+      x.innerHTML = `<span class="ib">${icon}</span><span class="t">${title}${badge ? `<span class="badge">${badge}</span>` : ''}</span><span class="d">${desc}</span>`;
+      x.onclick = go(key, fn);
+      tiles.append(x);
+    };
+    const textSize = { normal: 'Normal', large: 'Large', xl: 'Extra large' }[save.settings.textSize];
+    tile(3, 'golfer', ICON.golfer, 'My Golfer', 'Customize your look', () => this.showEditor());
+    tile(4, 'bag', ICON.bag, 'Golf Bag', `${TIERS[Math.round(bagTier())].name} clubs · upgrade`, () => this.showShop(), save.xp > 0 ? `${save.xp.toLocaleString()} XP` : '');
+    tile(5, 'settings', ICON.sliders, 'Settings', `${save.settings.swingMode === 'stick' ? 'Swing Stick' : '3-Click'} · ${textSize} text`, () => this.showSettings());
+    tile(6, 'help', ICON.pad, 'How to Play', 'Controls & match rules', () => this.showHelp());
+
+    col.append(play, feat, tiles);
+    const foot = h('div', { class: 'mm-foot rise', style: '--i:7' });
+    foot.innerHTML = `<span><i class="kc">↑</i><i class="kc">↓</i><i class="kc">←</i><i class="kc">→</i>Navigate</span><span><i class="kc">Enter</i>Select</span>`;
+    el.append(brand, col, foot, this.playerCard());
+    this.set(el);
+  }
+
+  // ---------------------------------------------------------------- match setup
+
+  showPlay() {
+    this.hooks.showroom('menu');
+    const el = h('div', { class: 'screen page setup' });
+    const head = this.pageHead('Play', 'Match Setup', 'Pick a course and difficulty. Good swings, holes won and birdies earn XP. Winning the match earns the most.', () => this.showMain());
+    const grid = h('div', { class: 'courses' });
+    const diffs = h('div', { class: 'diffs' });
+    const summary = h('div', { class: 'summary' });
+    const refresh = () => {
+      for (const k of grid.children) k.classList.toggle('sel', (k as HTMLElement).dataset.id === this.selCourse);
+      for (const k of diffs.children) k.classList.toggle('sel', (k as HTMLElement).dataset.id === this.selDiff);
+      const c = courseById(this.selCourse);
+      summary.innerHTML = `<span class="kicker">Your match</span><b>${esc(c.name)}</b><span>${DIFF_INFO[this.selDiff].name} · 9 holes · match play</span>`;
+    };
+    for (const c of COURSES) {
+      const card = h('div', { class: 'card nav', tabindex: '0', role: 'button', 'data-id': c.id, 'data-k': `course:${c.id}` });
+      if (c.id === this.selCourse) card.dataset.autofocus = '';
+      const art = h('div', { class: 'art' });
+      art.append(courseArt(c));
+      art.insertAdjacentHTML('beforeend', `<span class="style-tag">${c.style}</span><span class="check">${ICON.check}</span>`);
+      const body = h('div', { class: 'body' });
+      body.innerHTML = `<h3>${esc(c.name)}</h3><div class="loc">${esc(c.location)}</div><p>${esc(c.blurb)}</p>
+        <div class="stats3"><div><small>Par</small><b>${coursePar(c)}</b></div><div><small>Yards</small><b>${courseYards(c).toLocaleString()}</b></div><div><small>Wind mph</small><b>${c.windMin}-${c.windMax}</b></div></div>
+        ${save.best[c.id] ? `<div class="best">${ICON.trophy}Best: ${esc(save.best[c.id])}</div>` : ''}`;
+      card.append(art, body);
+      card.onclick = () => {
+        this.selCourse = c.id;
+        refresh();
+      };
+      grid.append(card);
+    }
+    for (const d of ['easy', 'medium', 'hard'] as Difficulty[]) {
+      const x = h('div', { class: `diff d-${d} nav`, tabindex: '0', role: 'button', 'data-id': d });
+      x.innerHTML = `<div class="dh"><h4>${DIFF_INFO[d].name}</h4>${pips(3, DIFF_INFO[d].pips)}</div><p>${DIFF_INFO[d].desc}</p>`;
+      x.onclick = () => {
+        this.selDiff = d;
+        refresh();
+      };
+      diffs.append(x);
+    }
+    const bar = h('div', { class: 'action-bar' });
+    const bag = h('button', { class: 'btn' });
+    bag.innerHTML = `${ICON.bag}<span>Check my bag</span>`;
+    bag.onclick = () => this.showShop(() => this.showPlay());
+    const go = h('button', { class: 'btn primary big' });
+    go.innerHTML = `<span>Tee Off</span>${ICON.play}`;
+    go.onclick = () => {
+      save.settings.courseId = this.selCourse;
+      save.settings.difficulty = this.selDiff;
+      persist();
+      this.hooks.startMatch(this.selCourse, this.selDiff);
+    };
+    bar.append(summary, bag, go);
+    refresh();
+    el.append(head, this.sectionTitle(1, 'Choose your course'), grid, this.sectionTitle(2, 'Difficulty'), diffs, bar);
+    this.set(el);
+  }
+
+  // ---------------------------------------------------------------- golfer editor
+
+  showEditor() {
+    this.hooks.showroom('editor');
+    const a = save.appearance;
+    const el = h('div', { class: 'screen editor' });
+    const side = h('div', { class: 'side' });
+    const body = h('div', { class: 'ed-body' });
+    const update = () => {
+      this.hooks.previewAppearance(save.appearance);
+      persist();
+    };
+    const sec = (t: string) => body.append(h('div', { class: 'ed-sec' }, t));
+    // name
+    const nameF = h('div', { class: 'field' }, h('label', {}, 'Name'));
+    const inp = h('input', { type: 'text', maxlength: '18', value: save.name, spellcheck: 'false' });
+    inp.addEventListener('input', () => {
+      save.name = inp.value.trim().slice(0, 18) || 'Player';
+      persist();
+    });
+    inp.addEventListener('keydown', (e) => e.stopPropagation());
+    nameF.append(inp);
+    const swatchField = (label: string, key: keyof Appearance, palette: string[]) => {
+      const f = h('div', { class: 'field' }, h('label', {}, label));
+      const row = h('div', { class: 'swatches' });
+      const render = () => {
+        clear(row);
+        for (const c of palette) {
+          const s = h('div', { class: `swatch nav ${String(a[key]) === c ? 'sel' : ''}`, tabindex: '0', role: 'button', 'data-k': `${key}:${c}` });
+          s.style.background = c;
+          s.onclick = () => {
+            (a as unknown as Record<string, unknown>)[key] = c;
+            update();
+            keepFocus(render);
+          };
+          row.append(s);
+        }
+        const isCustom = !palette.includes(String(a[key]));
+        const custom = h('div', { class: `swatch custom nav ${isCustom ? 'sel' : ''}`, tabindex: '0', title: 'Custom colour', 'data-k': `${key}:custom` });
+        const dot = h('i');
+        if (isCustom) dot.style.background = String(a[key]);
+        const ci = h('input', { type: 'color', value: String(a[key]), tabindex: '-1' });
+        ci.addEventListener('input', () => {
+          (a as unknown as Record<string, unknown>)[key] = ci.value;
+          update();
+          for (const s of row.children) s.classList.toggle('sel', s === custom);
+          dot.style.background = ci.value;
+        });
+        custom.append(dot, ci);
+        row.append(custom);
+      };
+      render();
+      f.append(row);
+      body.append(f);
+    };
+    const chipField = <T extends string>(label: string, options: T[], get: () => T, setv: (v: T) => void) => {
+      const f = h('div', { class: 'field' }, h('label', {}, label));
+      const row = h('div', { class: 'chips seg' });
+      const render = () => {
+        clear(row);
+        for (const o of options) {
+          const c = h('div', { class: `chip nav ${get() === o ? 'sel' : ''}`, tabindex: '0', role: 'button', 'data-k': `${label}:${o}` }, o);
+          c.onclick = () => {
+            setv(o);
+            update();
+            keepFocus(render);
+          };
+          row.append(c);
+        }
+      };
+      render();
+      f.append(row);
+      body.append(f);
+    };
+    const slider = (label: string, min: number, max: number, step: number, get: () => number, setv: (v: number) => void, fmt: (v: number) => string) => {
+      const f = h('div', { class: 'field' });
+      const val = h('b', {}, fmt(get()));
+      const lab = h('label', {}, label, val);
+      const r = h('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(get()) });
+      const fill = () => r.style.setProperty('--p', `${((get() - min) / (max - min)) * 100}%`);
+      r.addEventListener('input', () => {
+        setv(parseFloat(r.value));
+        val.textContent = fmt(get());
+        fill();
+        update();
+      });
+      fill();
+      f.append(lab, r);
+      body.append(f);
+    };
+    sec('Player');
+    body.append(nameF);
+    sec('Appearance');
+    swatchField('Skin tone', 'skin', SKIN);
+    chipField('Hair style', ['Short', 'Long', 'None'] as const as unknown as Appearance['hairStyle'][], () => a.hairStyle, (v) => (a.hairStyle = v));
+    swatchField('Hair colour', 'hair', HAIR);
+    sec('Apparel');
+    chipField('Headwear', ['Cap', 'Visor', 'Bucket', 'None'] as Appearance['hat'][], () => a.hat, (v) => (a.hat = v));
+    swatchField('Hat colour', 'hatColor', CLOTH);
+    swatchField('Shirt', 'shirt', CLOTH);
+    swatchField('Trousers', 'pants', CLOTH);
+    swatchField('Shoes', 'shoes', ['#f4f4f4', '#111111', '#5a3a22', '#1c2b4a', '#b5121b', '#8a8a8a']);
+    swatchField('Belt', 'belt', ['#111111', '#f2f2f2', '#5a3a22', '#1c2b4a', '#b5121b']);
+    chipField('Sunglasses', ['Off', 'On'], () => (a.sunglasses ? 'On' : 'Off'), (v) => (a.sunglasses = v === 'On'));
+    sec('Physique');
+    slider('Build', 0, 1, 0.01, () => a.build, (v) => (a.build = v), (v) => (v < 0.25 ? 'Athletic' : v < 0.6 ? 'Solid' : 'Heavy'));
+    slider('Height', 1.6, 2.0, 0.01, () => a.height, (v) => (a.height = v), (v) => `${Math.floor(v / 0.3048)}'${Math.round(((v / 0.3048) % 1) * 12)}" (${v.toFixed(2)} m)`);
+    const foot = h('div', { class: 'ed-foot' });
+    const done = h('button', { class: 'btn primary' });
+    done.innerHTML = `${ICON.check}<span>Done</span>`;
+    done.onclick = () => this.showMain();
+    foot.append(done);
+    side.append(this.pageHead('Create your player', 'My Golfer', 'Changes save automatically.', () => this.showMain()), body, foot);
+    const hint = h('div', { class: 'drag-hint' });
+    hint.innerHTML = `${ICON.rotate}<span>Drag to rotate</span>`;
+    el.append(side, hint);
+    this.set(el);
+    this.hooks.previewAppearance(a);
+  }
+
+  // ---------------------------------------------------------------- golf bag
+
+  showShop(onBack?: () => void) {
+    this.hooks.showroom('shop');
+    const el = h('div', { class: 'screen page shop' });
+    const render = () => {
+      clear(el);
+      const pill = h('div', { class: 'xp-pill' });
+      pill.innerHTML = `<span class="coin">${ICON.star}</span><span><small>XP to spend</small><b>${save.xp.toLocaleString()}</b></span>`;
+      const head = this.pageHead('Equipment', 'Golf Bag', 'Every club starts as a rusty hand-me-down. Spend the XP you earn in matches to upgrade them: more distance, tighter dispersion, more spin.', () => (onBack ? onBack() : this.showMain()), pill);
+      const ladder = h('div', { class: 'tier-ladder' });
+      ladder.innerHTML = TIERS.map((t, i) => `<div class="tier-${i}"><b>${t.name}</b><span>Tier ${i + 1} · ${Math.round(t.power * 100)}% dist</span></div>`).join('');
+      const grid = h('div', { class: 'shop-grid' });
+      for (const c of CLUBS) {
+        const tier = save.clubs[c.id] ?? 0;
+        const t = TIERS[tier];
+        const nt = TIERS[Math.min(MAX_TIER, tier + 1)];
+        const card = h('div', { class: `club-card t${tier}` });
+        const carry = c.kind === 'putter' ? '' : `<b>${Math.round(toYards(fullCarry(c, tier, SHOT_TYPES[0], Surf.Fairway, true)))}</b><small>yds</small>`;
+        const nextCarry = c.kind === 'putter' || tier >= MAX_TIER ? '' : `<span class="nx">→ ${Math.round(toYards(fullCarry(c, tier + 1, SHOT_TYPES[0], Surf.Fairway, true)))}</span>`;
+        const bar = (label: string, v: number, nv: number, max: number) =>
+          `<span>${label}</span><div class="b"><i style="width:${(v / max) * 100}%"></i>${tier < MAX_TIER ? `<u style="left:${(v / max) * 100}%;width:${Math.max(0, (nv - v) / max) * 100}%"></u>` : ''}</div><span>${Math.round((v / max) * 100)}</span>`;
+        card.innerHTML = `<div><span class="short">${esc(c.short)}</span><h3>${esc(c.name)}</h3><span class="tiername tier-${tier}">${t.name}</span></div>
+          <div class="cc-right"><div class="carry">${carry}${nextCarry}</div>${pips(TIERS.length, tier + 1)}</div>
+          <div class="bars">${c.kind === 'putter' ? '' : bar('Distance', t.power, nt.power, 1.04)}${bar('Accuracy', t.accuracy, nt.accuracy, 1)}${c.kind === 'putter' ? '' : bar('Spin', t.spin, nt.spin, 1.12)}</div>`;
+        const cost = upgradeCost(c, tier);
+        const btn = h('button', { class: 'btn buy', 'data-k': `buy:${c.id}` });
+        if (cost === null) {
+          btn.innerHTML = `${ICON.check}<span>Maxed out</span>`;
+          btn.setAttribute('disabled', '');
+        } else {
+          btn.innerHTML = `<span>Upgrade to ${TIERS[tier + 1].name}</span><span class="cost">${cost} XP</span>`;
+          if (save.xp < cost) btn.setAttribute('disabled', '');
+          else btn.classList.add('can');
+          btn.onclick = () => {
+            if (save.xp < cost) return;
+            save.xp -= cost;
+            save.clubs[c.id] = tier + 1;
+            persist();
+            keepFocus(render);
+          };
+        }
+        const wrap = h('div', { class: 'buy' });
+        wrap.append(btn);
+        card.append(wrap);
+        grid.append(card);
+      }
+      el.append(head, ladder, grid);
+    };
+    render();
+    this.set(el);
+  }
+
+  // ---------------------------------------------------------------- settings
+
+  showSettings(onBack?: () => void) {
+    const el = h('div', { class: 'screen page settings' });
+    const render = () => {
+      clear(el);
+      el.append(this.pageHead('Options', 'Settings', 'Saved automatically.', () => (onBack ? onBack() : this.showMain())));
+      const list = h('div', { class: 'settings-list' });
+      el.append(list);
+      const row = (title: string, desc: string, options: [string, string][], get: () => string, setv: (v: string) => void) => {
+        const r = h('div', { class: 'toggle-row' });
+        const l = h('div', {});
+        l.innerHTML = `<div class="tt">${title}</div><div class="d">${desc}</div>`;
+        const chips = h('div', { class: 'chips seg' });
+        for (const [v, label] of options) {
+          const c = h('div', { class: `chip nav ${get() === v ? 'sel' : ''}`, tabindex: '0', role: 'button', 'data-k': `${title}:${v}` }, label);
+          if (list.childElementCount === 0 && get() === v) c.dataset.autofocus = '';
+          c.onclick = () => {
+            setv(v);
+            persist();
+            this.hooks.settingsChanged();
+            keepFocus(render);
+          };
+          chips.append(c);
+        }
+        r.append(l, chips);
+        list.append(r);
+      };
+      row('Swing control', 'Swing Stick: hold, pull the mouse down, push up (tempo + straightness). 3-Click: classic power/accuracy meter.', [['stick', 'Swing Stick'], ['threeClick', '3-Click']], () => save.settings.swingMode, (v) => (save.settings.swingMode = v as 'stick' | 'threeClick'));
+      row('Gimmes', 'Concede short putts for both players (4 ft on Easy, 3 ft on Medium, 2½ ft on Hard).', [['on', 'On'], ['off', 'Off']], () => (save.settings.gimmes ? 'on' : 'off'), (v) => (save.settings.gimmes = v === 'on'));
+      row('Sound', 'Synthesized strike, crowd and ambience sounds.', [['on', 'On'], ['off', 'Off']], () => (save.settings.sound ? 'on' : 'off'), (v) => (save.settings.sound = v === 'on'));
+      row('Text size', 'Size of all on-screen text in the menus and HUD.', [['normal', 'Normal'], ['large', 'Large'], ['xl', 'Extra Large']], () => save.settings.textSize, (v) => (save.settings.textSize = v as TextSize));
+      row('Graphics quality', 'Lower settings reduce shadow resolution, terrain detail and grass density.', [['high', 'High'], ['medium', 'Medium'], ['low', 'Low']], () => save.settings.quality, (v) => (save.settings.quality = v as 'high' | 'medium' | 'low'));
+      const reset = h('button', { class: 'btn small danger' }, 'Reset all progress');
+      let armed = false;
+      reset.onclick = () => {
+        if (!armed) {
+          armed = true;
+          reset.textContent = 'Click again to confirm reset';
+          reset.classList.add('armed');
+          return;
+        }
+        resetSave();
+        this.hooks.settingsChanged();
+        render();
+      };
+      const danger = h('div', { class: 'danger-zone' });
+      danger.innerHTML = `<div><div class="tt">Reset progress</div><div class="d">Clears your XP, club upgrades, stats and golfer. This cannot be undone.</div></div>`;
+      danger.append(reset);
+      list.append(danger);
+    };
+    render();
+    this.set(el);
+  }
+
+  // ---------------------------------------------------------------- how to play
+
+  showHelp(onBack?: () => void) {
+    const el = h('div', { class: 'screen page guide' });
+    const head = this.pageHead('Guide', 'How to Play', 'Match play: win holes, not strokes. Lowest score on a hole wins it; the match ends when one player is up by more holes than remain.', () => (onBack ? onBack() : this.showMain()));
+    const grid = h('div', { class: 'guide-grid' });
+    const controls = h('div', { class: 'm-card' });
+    const k = (...ks: string[]) => ks.map((x) => `<span class="key">${x}</span>`).join('');
+    const rows: [string, string][] = [
+      [k('LMB'), '<b>Swing Stick:</b> hold the left mouse button, pull <b>down</b> to the blue power line (backswing), then push <b>up</b> past where you started. A smooth, straight push = a pure strike. Drifting right pushes/slices, left pulls/hooks. Too fast = hook, too slow = weak slice. Let go during the backswing to cancel.'],
+      [k('Click ×3'), '<b>3-Click mode:</b> click to start, click at the blue line for power, click again inside the green impact zone.'],
+      [k('←', '→'), "Pick a club from your bag (inventory bar shows each club's carry)."],
+      [k('Q', 'E'), 'Shot type: Normal, Power, Draw, Fade, Punch, Pitch, Flop, Chip, Bump &amp; Run (depends on club).'],
+      [k('A', 'D'), `Aim left / right (hold ${k('Shift')} for fine aim).`],
+      [`${k('W', 'S')} / wheel`, 'Set how far you want to hit it — the landing ring, arc and carry/total numbers update live, and the blue line on the swing meter moves.'],
+      [k('V'), 'Target camera: look at the landing area.'],
+      [k('G'), 'Green read: elevated view with the slope grid. Dots flow downhill; colour shows steepness.'],
+      [k('R'), 'Reset aim and club suggestion.'],
+      [k('Space'), 'Skip flyover · hold to fast-forward ball roll.'],
+      [k('Tab'), 'Scorecard.'],
+      [k('Esc'), 'Pause menu.'],
+    ];
+    controls.innerHTML = `<div class="card-title">Controls</div><div class="controls-table">${rows.map(([keys, d]) => `<span>${keys}</span><span>${d}</span>`).join('')}</div>`;
+    const rules = h('div', { class: 'm-card' });
+    rules.innerHTML = `<div class="card-title">Match play</div><ul class="rules">
+        <li>Win holes, not strokes: the lowest score on a hole wins it, and a tie halves it.</li>
+        <li>The match ends as soon as one player is up by more holes than remain, for example <b>3&amp;2</b>.</li>
+        <li>Short putts inside the gimme range are conceded for both players (see Settings).</li>
+      </ul><div class="card-title">Earning XP</div><ul class="rules">
+        <li>Good swings, holes won, birdies and better all earn XP. Winning the match earns the most, and harder difficulties pay more.</li>
+        <li>Spend XP in the <b>Golf Bag</b> to upgrade clubs: more distance, tighter dispersion and more spin.</li>
+        <li>Quitting a match from the pause menu earns no XP.</li>
+      </ul>`;
+    grid.append(controls, rules);
+    el.append(head, grid);
+    this.set(el);
+  }
+
+  // ---------------------------------------------------------------- loading / pause
+
+  showLoading(title: string, sub: string) {
+    const el = h('div', { class: 'screen loading' });
+    el.innerHTML = `${crest()}<div class="t">${esc(title)}</div><div class="s">${esc(sub)}</div><div class="lbar"><i></i></div>`;
+    this.set(el);
+  }
+
+  showPause() {
+    this.inMatch = true;
+    const el = h('div', { class: 'screen pause' });
+    const sheet = h('div', { class: 'sheet panel' });
+    sheet.innerHTML = `${crest()}<h2>Paused</h2>`;
+    const b = (label: string, icon: string, fn: () => void, primary = false) => {
+      const x = h('button', { class: `btn ${primary ? 'primary' : ''}` });
+      x.innerHTML = `${icon}<span>${label}</span>`;
+      x.onclick = fn;
+      sheet.append(x);
+    };
+    b('Resume', ICON.play, () => this.hooks.resume(), true);
+    b('Controls', ICON.pad, () => this.showHelp(() => this.showPause()));
+    b('Settings', ICON.sliders, () => this.showSettings(() => this.showPause()));
+    b('Quit match (no XP)', ICON.exit, () => this.hooks.quitMatch());
+    el.append(sheet);
+    this.set(el);
+  }
+
+  // ---------------------------------------------------------------- results
+
+  showResults(m: MatchState, course: CourseDef, diff: Difficulty, opponent: string, onDone: () => void) {
+    this.hooks.showroom('menu');
+    this.inMatch = false;
+    const xp = computeXp(m, diff);
+    const res = m.result;
+    const earnedBefore = save.xpEarned;
+    save.xp += xp.total;
+    save.xpEarned += xp.total;
+    save.stats.played++;
+    if (res === 'won') save.stats.won++;
+    else if (res === 'lost') save.stats.lost++;
+    else save.stats.halved++;
+    for (const hr of m.holes) {
+      if (hr.winner === 'player') save.stats.holesWon++;
+      if (hr.player !== null && hr.winner && hr.playerHoled) {
+        if (hr.player === 1) save.stats.aces++;
+        else if (hr.player - hr.par <= -2) save.stats.eagles++;
+        else if (hr.player - hr.par === -1) save.stats.birdies++;
+      }
+    }
+    if (res === 'won') save.best[course.id] = `${diff}: ${m.statusText()}`;
+    persist();
+    const el = h('div', { class: 'screen results' });
+    const sheet = h('div', { class: 'sheet panel' });
+    const title = res === 'won' ? 'YOU WIN!' : res === 'lost' ? 'DEFEAT' : 'ALL SQUARE';
+    const holes = m.holes;
+    sheet.innerHTML = `<div class="res-hero ${res}">
+        <div class="kicker">${esc(course.name)} · ${DIFF_INFO[diff].name} · vs ${esc(opponent)}</div>
+        <h1 class="${res}">${title}</h1><div class="res-status">${esc(m.statusText())}</div></div>
+      <div class="res-body">
+        <div><div class="card-title">XP earned</div>
+          <div class="xp-lines">${xp.lines.map((l) => `<div><span>${esc(l.label)}</span><b>+${l.xp}</b></div>`).join('') || '<div><span>No XP this time — win holes to earn some.</span></div>'}
+          <div class="total"><span>Total</span><b class="xp-count">+0</b></div></div></div>
+        <div><div class="card-title">Player level</div>
+          <div class="xp-progress"><div class="lvrow"><span>Level <b class="lv">1</b></span><span class="cnt"></span></div><div class="xpbar"><i></i></div><div class="lvup hidden">LEVEL UP!</div></div>
+          <div class="res-bal">XP to spend <b>${save.xp.toLocaleString()}</b></div></div>
+      </div>
+      <div class="res-card"><table class="res-table">
+        <tr>${['Hole', ...holes.map((_, i) => String(i + 1))].map((x) => `<th>${x}</th>`).join('')}</tr>
+        <tr class="par"><td>Par</td>${holes.map((hr) => `<td>${hr.par}</td>`).join('')}</tr>
+        <tr><td>${esc(save.name)}</td>${holes.map((hr) => `<td class="${hr.winner === 'player' ? 'w' : ''}">${hr.player ?? '-'}</td>`).join('')}</tr>
+        <tr><td>${esc(opponent)}</td>${holes.map((hr) => `<td class="${hr.winner === 'ai' ? 'l' : ''}">${hr.ai ?? '-'}</td>`).join('')}</tr>
+      </table></div>`;
+    const row = h('div', { class: 'res-actions' });
+    const up = h('button', { class: 'btn primary' });
+    up.innerHTML = `${ICON.bag}<span>Upgrade clubs (${save.xp} XP)</span>`;
+    up.onclick = () => this.showShop(() => onDone());
+    const again = h('button', { class: 'btn' });
+    again.innerHTML = `${ICON.again}<span>Play again</span>`;
+    again.onclick = () => this.hooks.startMatch(course.id, diff);
+    const menu = h('button', { class: 'btn' });
+    menu.innerHTML = `${ICON.home}<span>Main menu</span>`;
+    menu.onclick = () => onDone();
+    row.append(up, again, menu);
+    sheet.append(row);
+    el.append(sheet);
+    this.set(el);
+    this.animateXp(sheet, earnedBefore, xp.total);
+  }
+
+  /** Counts the earned XP up and fills the level bar, flagging any level-ups. */
+  private animateXp(sheet: HTMLElement, before: number, gained: number) {
+    const count = sheet.querySelector('.xp-count') as HTMLElement;
+    const lvEl = sheet.querySelector('.xp-progress .lv') as HTMLElement;
+    const cnt = sheet.querySelector('.xp-progress .cnt') as HTMLElement;
+    const bar = sheet.querySelector('.xp-progress .xpbar i') as HTMLElement;
+    const lvUp = sheet.querySelector('.xp-progress .lvup') as HTMLElement;
+    const startLevel = playerLevel(before).level;
+    const dur = gained > 0 ? 1.8 : 0;
+    const t0 = performance.now();
+    let chimed = false;
+    const frame = () => {
+      if (!sheet.isConnected) return;
+      const u = dur ? Math.min(1, (performance.now() - t0) / 1000 / dur) : 1;
+      const k = 1 - (1 - u) * (1 - u) * (1 - u);
+      const g = Math.round(gained * k);
+      const lv = playerLevel(before + g);
+      count.textContent = `+${g}`;
+      lvEl.textContent = String(lv.level);
+      cnt.textContent = `${lv.into} / ${lv.next} XP to level ${lv.level + 1}`;
+      bar.style.width = `${Math.round((lv.into / lv.next) * 100)}%`;
+      if (lv.level > startLevel && !chimed) {
+        chimed = true;
+        lvUp.textContent = lv.level - startLevel > 1 ? `LEVEL UP! → ${lv.level}` : 'LEVEL UP!';
+        lvUp.classList.remove('hidden');
+        sfx.levelUp();
+      }
+      if (u < 1) requestAnimationFrame(frame);
+      else if (gained > 0 && !chimed) sfx.xp();
+    };
+    frame();
+  }
+}

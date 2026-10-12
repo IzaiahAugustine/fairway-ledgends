@@ -1,0 +1,165 @@
+{
+ "fps": 30,
+ "animations": {
+  "Swing_Driver": {
+   "frames": 80,
+   "top": 30,
+   "top_s": 1.0,
+   "impact": 40,
+   "impact_s": 1.3333,
+   "finish": 70,
+   "finish_s": 2.3333,
+   "last": 80,
+   "last_s": 2.6667,
+   "impact_face_center_to_ball_m": 0.0151,
+   "club": "Driver"
+  },
+  "Swing_Wood": {
+   "frames": 80,
+   "top": 30,
+   "top_s": 1.0,
+   "impact": 40,
+   "impact_s": 1.3333,
+   "finish": 70,
+   "finish_s": 2.3333,
+   "last": 80,
+   "last_s": 2.6667,
+   "impact_face_center_to_ball_m": 0.0157,
+   "club": "Wood"
+  },
+  "Swing_Iron": {
+   "frames": 80,
+   "top": 30,
+   "top_s": 1.0,
+   "impact": 40,
+   "impact_s": 1.3333,
+   "finish": 70,
+   "finish_s": 2.3333,
+   "last": 80,
+   "last_s": 2.6667,
+   "impact_face_center_to_ball_m": 0.0147,
+   "club": "Iron"
+  },
+  "Swing_Wedge": {
+   "frames": 72,
+   "top": 26,
+   "top_s": 0.8667,
+   "impact": 36,
+   "impact_s": 1.2,
+   "finish": 62,
+   "finish_s": 2.0667,
+   "last": 72,
+   "last_s": 2.4,
+   "impact_face_center_to_ball_m": 0.0123,
+   "club": "Wedge"
+  },
+  "Swing_Chip": {
+   "frames": 50,
+   "top": 18,
+   "top_s": 0.6,
+   "impact": 26,
+   "impact_s": 0.8667,
+   "finish": 42,
+   "finish_s": 1.4,
+   "last": 50,
+   "last_s": 1.6667,
+   "impact_face_center_to_ball_m": 0.0124,
+   "club": "Wedge"
+  },
+  "Swing_Putt": {
+   "frames": 55,
+   "top": 18,
+   "top_s": 0.6,
+   "impact": 30,
+   "impact_s": 1.0,
+   "finish": 45,
+   "finish_s": 1.5,
+   "last": 55,
+   "last_s": 1.8333,
+   "impact_face_center_to_ball_m": 0.0204,
+   "club": "Putter"
+  },
+  "Idle": {
+   "frames": 60,
+   "last": 60,
+   "last_s": 2.0,
+   "club": "Iron"
+  },
+  "Celebrate": {
+   "frames": 45,
+   "last": 45,
+   "last_s": 1.5,
+   "club": "Iron"
+  },
+  "Dejected": {
+   "frames": 45,
+   "last": 45,
+   "last_s": 1.5,
+   "club": "Iron"
+  }
+ },
+ "face_center_local": {
+  "Driver": [
+   0.03316,
+   1.03033,
+   0.02425
+  ],
+  "Wood": [
+   0.02691,
+   0.94821,
+   0.0157
+  ],
+  "Hybrid": [
+   0.0227,
+   0.94957,
+   0.01417
+  ],
+  "Iron": [
+   0.04161,
+   0.85826,
+   -0.01012
+  ],
+  "Wedge": [
+   0.03942,
+   0.79591,
+   -0.01912
+  ],
+  "Putter": [
+   0.05956,
+   0.76282,
+   0.00389
+  ]
+ },
+ "markers_gltf": {
+  "Ball_Driver": [
+   0.15,
+   0.045,
+   0.86
+  ],
+  "Ball_Wood": [
+   0.1,
+   0.0213,
+   0.79
+  ],
+  "Ball_Iron": [
+   0.03,
+   0.0213,
+   0.685
+  ],
+  "Ball_Wedge": [
+   0.005,
+   0.0213,
+   0.64
+  ],
+  "Ball_Chip": [
+   -0.035,
+   0.0213,
+   0.53
+  ],
+  "Ball_Putt": [
+   0.045,
+   0.0213,
+   0.445
+  ]
+ }
+}
