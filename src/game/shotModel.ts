@@ -2,7 +2,7 @@
 import { YARD, clamp } from '../core/rng';
 import { CLUBS, TIERS, type ClubDef, type ShotTypeDef } from '../data/clubs';
 import { swingStyleById, type SwingStyleId } from '../data/swingStyles';
-import { FlatGround, ROLL, simulateShot, speedForRoll, type Launch } from '../physics/ballPhysics';
+import { FlatGround, ROLL, airDensityAt, simulateShot, speedForRoll, type Launch } from '../physics/ballPhysics';
 import { Surf } from '../world/holeGen';
 
 export interface SwingResult {
@@ -45,7 +45,7 @@ export function lieMods(lie: Surf, club: ClubDef, teed: boolean): LieMods {
       return { dist: club.kind === 'wedge' ? 0.7 : 0.6, spin: 0.35, launch: 1.1, err: 1.7, label: 'Deep Rough — 55-70%' };
     case Surf.Bunker:
       return club.kind === 'wedge'
-        ? { dist: 0.8, spin: 0.55, launch: 1.06, err: 1.3, label: 'Bunker — 75-85%' }
+        ? { dist: 0.8, spin: 0.55, launch: 1.28, err: 1.3, label: 'Bunker — 75-85%' }
         : { dist: club.kind === 'driver' || club.kind === 'wood' ? 0.5 : 0.68, spin: 0.45, launch: 0.95, err: 1.7, label: 'Bunker — 50-70%' };
     default:
       return { dist: 0.85, spin: 0.6, launch: 1, err: 1.3, label: 'Rough' };
@@ -56,22 +56,41 @@ export function lieMods(lie: Surf, club: ClubDef, teed: boolean): LieMods {
 const flat = new FlatGround();
 const speedCache = new Map<string, number>();
 
-function carryFor(speed: number, launchDeg: number, spinRpm: number): number {
+/** Air density of the course being played (1 = sea level) and how much farther it carries. */
+let air = 1;
+let altitudeGain = 1;
+
+/** Set the playing altitude: club yardages and calibration follow the thinner air. */
+export function setAltitude(metres: number) {
+  air = airDensityAt(metres);
+  // the same swing at altitude: compare a stock 7-iron's carry with sea level
+  const c = CLUBS.find((k) => k.id === '7i')!;
+  const v = solveSpeedAt(c.carry * YARD, c.launch, c.spin, 1);
+  altitudeGain = air === 1 ? 1 : carryFor(v, c.launch, c.spin, air) / (c.carry * YARD);
+}
+/** Extra carry from the thin air (1.0 at sea level). */
+export const altitudeCarryGain = () => altitudeGain;
+
+function carryFor(speed: number, launchDeg: number, spinRpm: number, density = air): number {
   const r = simulateShot(
     { x: 0, y: 0.03, z: 0, speed, launchDeg, dirX: 0, dirZ: -1, spinRpm, axisDeg: 0 },
-    { ground: flat, wind: { x: 0, z: 0 }, firmness: 1, cup: null, flagIn: false, flightOnly: true },
+    { ground: flat, wind: { x: 0, z: 0 }, firmness: 1, cup: null, flagIn: false, flightOnly: true, air: density },
   );
   return r.carry;
 }
 
 export function solveSpeed(targetCarry: number, launchDeg: number, spinRpm: number): number {
-  const key = `${targetCarry.toFixed(1)}|${launchDeg.toFixed(1)}|${Math.round(spinRpm / 50)}`;
+  return solveSpeedAt(targetCarry, launchDeg, spinRpm, air);
+}
+
+function solveSpeedAt(targetCarry: number, launchDeg: number, spinRpm: number, density: number): number {
+  const key = `${targetCarry.toFixed(1)}|${launchDeg.toFixed(1)}|${Math.round(spinRpm / 50)}|${density.toFixed(3)}`;
   const c = speedCache.get(key);
   if (c !== undefined) return c;
   let lo = 2, hi = 95;
   for (let i = 0; i < 22; i++) {
     const mid = (lo + hi) / 2;
-    if (carryFor(mid, launchDeg, spinRpm) < targetCarry) lo = mid;
+    if (carryFor(mid, launchDeg, spinRpm, density) < targetCarry) lo = mid;
     else hi = mid;
   }
   const v = (lo + hi) / 2;
@@ -120,7 +139,7 @@ export function fullCarry(club: ClubDef, tier: number, shot: ShotTypeDef, lie: S
   // a style's extra (or lost) distance shows fully on long clubs and fades out on short shots
   const st = swingStyleById(style);
   const styleMul = isShortGame(club, shot) ? 1 + (st.power - 1) * 0.3 : st.power;
-  return club.carry * YARD * TIERS[tier].power * shot.distMul * lm.dist * styleMul;
+  return club.carry * YARD * TIERS[tier].power * shot.distMul * lm.dist * styleMul * altitudeGain;
 }
 
 export function launchFor(setup: ShotSetup, swing: SwingResult): Launch {

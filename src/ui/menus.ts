@@ -103,39 +103,123 @@ function courseArt(c: CourseDef): HTMLCanvasElement {
   const ctx = cv.getContext('2d')!;
   const sky = ctx.createLinearGradient(0, 0, 0, 300);
   const hexc = (n: number) => '#' + n.toString(16).padStart(6, '0');
-  if (c.id === 'pebble') { sky.addColorStop(0, '#f6c890'); sky.addColorStop(0.6, '#9cc6e6'); }
-  else if (c.id === 'standrews') { sky.addColorStop(0, '#9aa9b8'); sky.addColorStop(0.6, '#d7dde2'); }
+  const st = c.style;
+  if (st === 'desert') { sky.addColorStop(0, '#f2a86a'); sky.addColorStop(0.6, '#f6d8a8'); }
+  else if (st === 'coastal') { sky.addColorStop(0, '#8a9aa8'); sky.addColorStop(0.6, '#d0d8de'); }
+  else if (st === 'beach') { sky.addColorStop(0, '#3d9ae0'); sky.addColorStop(0.65, '#bfe6f6'); }
   else { sky.addColorStop(0, '#5d9fd8'); sky.addColorStop(0.65, '#cfe3f2'); }
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, 480, 300);
   let seed = c.id.length * 97;
   const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
-  if (c.style === 'coastal') {
-    ctx.fillStyle = '#2a6d8f';
+  if (st === 'alpine') {
+    // snow-capped peaks
+    for (const [x0, w, ht, col] of [[-40, 260, 150, '#6c7a8c'], [150, 300, 175, '#5a687a'], [330, 220, 130, '#74828f']] as [number, number, number, string][]) {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(x0, 190);
+      ctx.lineTo(x0 + w / 2, 190 - ht);
+      ctx.lineTo(x0 + w, 190);
+      ctx.fill();
+      ctx.fillStyle = '#eef2f6';
+      ctx.beginPath();
+      ctx.moveTo(x0 + w / 2 - w * 0.12, 190 - ht * 0.76);
+      ctx.lineTo(x0 + w / 2, 190 - ht);
+      ctx.lineTo(x0 + w / 2 + w * 0.12, 190 - ht * 0.76);
+      ctx.lineTo(x0 + w / 2 + w * 0.04, 190 - ht * 0.8);
+      ctx.lineTo(x0 + w / 2 - w * 0.03, 190 - ht * 0.72);
+      ctx.fill();
+    }
+  }
+  if (st === 'desert') {
+    // red mesas on the horizon
+    ctx.fillStyle = '#b5583a';
+    for (const [x0, w, ht] of [[20, 120, 60], [190, 70, 85], [300, 160, 50]]) {
+      ctx.beginPath();
+      ctx.moveTo(x0, 175);
+      ctx.lineTo(x0 + 14, 175 - ht);
+      ctx.lineTo(x0 + w - 14, 175 - ht);
+      ctx.lineTo(x0 + w, 175);
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(80,20,10,0.25)';
+    ctx.fillRect(0, 150, 480, 3);
+  }
+  const sea = st === 'coastal' || st === 'beach';
+  if (sea) {
+    ctx.fillStyle = st === 'beach' ? '#1fa6b0' : '#2a5d78';
     ctx.fillRect(0, 160, 480, 140);
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
     for (let i = 0; i < 30; i++) ctx.fillRect(rnd() * 480, 165 + rnd() * 120, 20 + rnd() * 30, 1.5);
   }
-  // rolling land layers
+  if (st === 'beach') {
+    // white sand shelving to the water
+    ctx.fillStyle = hexc(c.colors.sand);
+    ctx.beginPath();
+    ctx.moveTo(100, 300);
+    for (let x = 100; x <= 480; x += 10) ctx.lineTo(x, 175 + Math.sin(x * 0.02) * 6);
+    ctx.lineTo(480, 300);
+    ctx.fill();
+  }
+  // rolling land layers (clifftops on the coast)
   const layers = [hexc(c.colors.deep), hexc(c.colors.rough), hexc(c.colors.fairway)];
   layers.forEach((col, li) => {
     ctx.fillStyle = col;
     ctx.beginPath();
-    const base = 150 + li * 45;
-    ctx.moveTo(c.style === 'coastal' ? 140 + li * 30 : 0, 300);
-    for (let x = c.style === 'coastal' ? 140 + li * 30 : 0; x <= 480; x += 10) ctx.lineTo(x, base + Math.sin(x * 0.012 + li * 2) * (10 + c.dunes * 4) + Math.sin(x * 0.05 + li) * 3);
+    const base = 150 + li * 45 + (st === 'beach' ? 10 : 0);
+    const x0 = sea ? 140 + li * 30 : 0;
+    ctx.moveTo(x0, 300);
+    for (let x = x0; x <= 480; x += 10) ctx.lineTo(x, base + Math.sin(x * 0.012 + li * 2) * (10 + c.dunes * 4) + Math.sin(x * 0.05 + li) * 3);
     ctx.lineTo(480, 300);
     ctx.fill();
   });
-  // trees
-  for (let i = 0; i < (c.style === 'parkland' ? 26 : c.style === 'coastal' ? 9 : 4); i++) {
-    const x = rnd() * 480, y = 150 + rnd() * 40, s = 14 + rnd() * 18;
+  if (st === 'coastal') {
+    ctx.fillStyle = '#5d5850';
+    for (let li = 0; li < 3; li++) ctx.fillRect(136 + li * 30, 150 + li * 45 + 8, 6, 300);
+  }
+  // trees: palms, cacti, pines or round crowns (autumn colours on the maple course)
+  const n = st === 'parkland' || st === 'alpine' ? 26 : st === 'desert' ? 10 : st === 'beach' ? 8 : 4;
+  for (let i = 0; i < n; i++) {
+    const x = (sea ? 160 : 0) + rnd() * (sea ? 320 : 480), y = 150 + rnd() * 40, s = 14 + rnd() * 18;
+    if (st === 'beach') {
+      ctx.strokeStyle = '#7a5a3a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x, y + s);
+      ctx.quadraticCurveTo(x + 6, y + s * 0.2, x + 3, y - s);
+      ctx.stroke();
+      ctx.strokeStyle = '#2f7a2c';
+      ctx.lineWidth = 2.5;
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(x + 3, y - s);
+        ctx.quadraticCurveTo(x + 3 + Math.cos(a) * s * 0.6, y - s - 6, x + 3 + Math.cos(a) * s * 0.9, y - s + Math.abs(Math.sin(a)) * 6 + 6);
+        ctx.stroke();
+      }
+      continue;
+    }
+    if (st === 'desert') {
+      ctx.fillStyle = '#3f6a3a';
+      ctx.fillRect(x - 3, y - s * 0.4, 6, s * 1.4);
+      ctx.fillRect(x - 11, y, 4, -s * 0.5);
+      ctx.fillRect(x - 11, y, 10, 4);
+      ctx.fillRect(x + 7, y + 4, 4, -s * 0.4);
+      ctx.fillRect(x + 1, y + 4, 10, 4);
+      continue;
+    }
     ctx.fillStyle = '#3a2a1a';
     ctx.fillRect(x - 1.5, y, 3, s * 0.5);
-    ctx.fillStyle = c.style === 'coastal' ? '#2c4a2c' : '#2f5a28';
     ctx.beginPath();
-    if (c.style === 'coastal') ctx.ellipse(x, y - s * 0.1, s * 0.9, s * 0.3, 0, 0, Math.PI * 2);
-    else ctx.arc(x, y - s * 0.3, s * 0.5, 0, Math.PI * 2);
+    if (st === 'alpine' || st === 'coastal') {
+      ctx.fillStyle = '#244a2a';
+      ctx.moveTo(x - s * 0.35, y + 2);
+      ctx.lineTo(x, y - s);
+      ctx.lineTo(x + s * 0.35, y + 2);
+    } else {
+      ctx.fillStyle = c.foliage ? hexc(c.foliage[i % c.foliage.length]) : '#2f5a28';
+      ctx.arc(x, y - s * 0.3, s * 0.5, 0, Math.PI * 2);
+    }
     ctx.fill();
   }
   // green + flag
@@ -464,7 +548,7 @@ export class Menus {
       if (c.id === this.selCourse) card.dataset.autofocus = '';
       const art = h('div', { class: 'art' });
       art.append(courseArt(c));
-      art.insertAdjacentHTML('beforeend', `<span class="style-tag">${c.style}</span><span class="check">${ICON.check}</span>`);
+      art.insertAdjacentHTML('beforeend', `<span class="style-tag">${c.foliage ? 'autumn' : c.style}</span><span class="check">${ICON.check}</span>`);
       const body = h('div', { class: 'body' });
       body.innerHTML = `<h3>${esc(c.name)}</h3><div class="loc">${esc(c.location)}</div><p>${esc(c.blurb)}</p>
         <div class="stats3"><div><small>Par</small><b>${coursePar(c)}</b></div><div><small>Yards</small><b>${courseYards(c).toLocaleString()}</b></div><div><small>Wind mph</small><b>${c.windMin}-${c.windMax}</b></div></div>

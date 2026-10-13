@@ -20,7 +20,9 @@ PROP_LAYOUT = [("Flagstick", (0.0, 0.0, 0.0)), ("Flag", (0.0, 0.0, 0.0)), ("Cup"
                ("Bench", (3.6, 0.6, 0.0)), ("Rock_A", (-2.3, 0.8, 0.0)), ("Rock_B", (-1.1, -0.2, 0.0)),
                ("Divot", (-0.2, -0.9, 0.0)), ("DivotChunk", (-0.05, -0.2, 0.0)),
                ("Spectator_A", (-3.6, 0.4, 0.0)), ("Spectator_B", (-4.3, 0.6, 0.0)), ("Spectator_C", (-5.0, 0.4, 0.0)),
-               ("Spectator_Lo", (-5.7, 0.4, 0.0)), ("Grandstand", (-14.0, 4.0, 0.0))]
+               ("Spectator_Lo", (-5.7, 0.4, 0.0)), ("Grandstand", (-14.0, 4.0, 0.0)),
+               ("Tree_Palm_A", (10.0, 4.0, 0.0)), ("Tree_Palm_B", (14.0, 7.0, 0.0)), ("Tree_Palm_C", (18.0, 3.0, 0.0)),
+               ("Tree_Saguaro_A", (24.0, 4.0, 0.0)), ("Tree_Saguaro_B", (27.5, 6.0, 0.0)), ("Bush_Barrel_A", (25.5, 1.5, 0.0))]
 
 
 def look_at(obj, target):
@@ -138,6 +140,7 @@ def build_preview_scene(main):
         "bag": ((2.6, PROP_ROW_Y - 1.6, 1.15), (1.9, PROP_ROW_Y + 0.15, 0.6), 50),
         "stand": ((-9.0, PROP_ROW_Y - 9.0, 3.2), (-14.0, PROP_ROW_Y + 6.0, 1.6), 30),
         "crowd": ((-4.3, PROP_ROW_Y - 3.4, 1.3), (-4.3, PROP_ROW_Y + 0.5, 0.95), 45),
+        "exotic": ((18.0, PROP_ROW_Y - 22.0, 4.0), (18.5, PROP_ROW_Y + 4.0, 4.5), 40),
         "divot": ((-0.2, PROP_ROW_Y - 1.45, 0.5), (-0.2, PROP_ROW_Y - 0.6, 0.0), 50),
         "cup_top": ((0.55, PROP_ROW_Y - 0.62, 0.62), (0.55, PROP_ROW_Y - 0.55, 0.0), 50),
         "oak": ((-2.0, -24.0, 2.5), (0.0, 0.0, 7.0), 32),
@@ -217,6 +220,8 @@ def render_all(out_dir, args=()):
         _render(prev, "cup_top", os.path.join(out_dir, "env_props_cup.png"), (900, 900))
     if "stand" in views:
         _render(prev, "stand", os.path.join(out_dir, "env_props_stand.png"), (1200, 900))
+    if "exotic" in views:
+        _render(prev, "exotic", os.path.join(out_dir, "env_props_exotic.png"), (1400, 900))
     if "crowd" in views:
         _render(prev, "crowd", os.path.join(out_dir, "env_props_crowd.png"), (1200, 900))
     if "props" in views or "divot" in views:

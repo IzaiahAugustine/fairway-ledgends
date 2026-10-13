@@ -3,7 +3,7 @@
 // boundary smoothly; a coarse world height map feeds the water shader.
 import * as THREE from 'three';
 import { Noise2D, clamp, lerp, smoothstep } from '../core/rng';
-import type { CourseDef } from '../data/courses';
+import { traits, type CourseDef } from '../data/courses';
 import type { HoleField } from './holeGen';
 import { CLOUD_GLSL, cloudUniforms, terrainTime, type TerrainTextures } from './terrain';
 
@@ -15,6 +15,7 @@ interface Landscape {
   cliffs: boolean;
   rolling: number;
   ridge: number;
+  ridgeNear: number;
   forest: number;
 }
 
@@ -80,7 +81,7 @@ export class OuterWorld {
 
   private pickLandscape(): Landscape {
     const f = this.field;
-    const style = this.course.style;
+    const T = traits(this.course);
     const play = { x: f.cup.x - f.tee.x, z: f.cup.z - f.tee.z };
     const pl = Math.hypot(play.x, play.z) || 1;
     play.x /= pl; play.z /= pl;
@@ -89,9 +90,7 @@ export class OuterWorld {
     let seaDist = 0;
     if (f.oceanSide !== 0) seaDir = { x: right.x * f.oceanSide, z: right.z * f.oceanSide };
     else if (f.oceanBehind) seaDir = play;
-    else if (style === 'coastal') seaDir = f.index % 2 ? right : { x: -right.x, z: -right.z };
-    else if (this.course.id === 'standrews') seaDir = f.index % 3 === 1 ? play : { x: -right.x, z: -right.z };
-    else if (style === 'links') seaDir = f.index % 2 ? right : { x: -right.x, z: -right.z };
+    else if (T.seaAlways) seaDir = f.index % 2 ? right : { x: -right.x, z: -right.z };
     if (seaDir) {
       // find the coastline inside the hole, else put it beyond the boundary
       seaDist = -1;
@@ -105,16 +104,17 @@ export class OuterWorld {
           Math.abs(seaDir.x) > 1e-3 ? ((seaDir.x > 0 ? this.maxX : f.minX) - this.cx) / seaDir.x : 1e9,
           Math.abs(seaDir.z) > 1e-3 ? ((seaDir.z > 0 ? this.maxZ : f.minZ) - this.cz) / seaDir.z : 1e9,
         );
-        seaDist = toEdge + (style === 'coastal' ? 650 : this.course.id === 'standrews' ? 450 : 1500);
+        seaDist = toEdge + T.seaDist;
       }
     }
     return {
       seaDir,
       seaDist,
-      cliffs: style === 'coastal',
-      rolling: style === 'parkland' ? 16 : style === 'coastal' ? 14 : 5,
-      ridge: style === 'parkland' ? 75 : style === 'coastal' ? 230 : 30,
-      forest: style === 'parkland' ? 0.8 : style === 'coastal' ? 0.65 : this.course.id === 'shinnecock' ? 0.3 : 0.08,
+      cliffs: T.cliffs,
+      rolling: T.rolling,
+      ridge: T.ridge,
+      ridgeNear: T.ridgeNear,
+      forest: T.forest,
     };
   }
 
@@ -141,12 +141,27 @@ export class OuterWorld {
     const r = Math.hypot(x - this.cx, z - this.cz);
     const sea = this.seaCoord(x, z);
     // distant ridges rise with distance (and away from the sea)
-    let inland = smoothstep(700, 3000, r);
+    let inland = smoothstep(L.ridgeNear, L.ridgeNear + 2300, r);
     if (L.seaDir) inland *= smoothstep(150, 900, -sea);
     const wx = x + 220 * n.noise(x * 0.0006 + 9.1, z * 0.0006 - 3.3), wz = z + 220 * n.noise(x * 0.0006 - 4.4, z * 0.0006 + 8.8);
     const body = smoothstep(-0.35, 0.85, n.fbm(wx * 0.00065 + 5.5, wz * 0.00065 - 1.7, 5, 2.1, 0.47));
-    const ridge = body * body * (0.82 + 0.18 * n.ridged(wx * 0.0024, wz * 0.0024, 2));
-    h += L.ridge * inland * ridge;
+    const style = this.course.style;
+    if (style === 'alpine') {
+      // jagged peaks: sharp ridgelines on top of the massif, always some mountains in view
+      const crest = n.ridged(wx * 0.0008 + 3.1, wz * 0.0008 - 6.2, 4);
+      const mass = 0.35 + 0.65 * body;
+      h += L.ridge * inland * mass * (0.3 + 0.7 * Math.pow(crest, 1.6));
+    } else if (style === 'desert') {
+      // mesas and buttes: flat tops on sheer sides, in bands of rock
+      const raw = L.ridge * inland * body * (0.75 + 0.25 * n.ridged(wx * 0.002, wz * 0.002, 2));
+      const step = 55;
+      const k = raw / step;
+      const fl = Math.floor(k);
+      h += (fl + smoothstep(0.72, 0.9, k - fl)) * step;
+    } else {
+      const ridge = body * body * (0.82 + 0.18 * n.ridged(wx * 0.0024, wz * 0.0024, 2));
+      h += L.ridge * inland * ridge;
+    }
     if (L.seaDir) {
       if (L.cliffs) {
         // bluffs: land holds ~10-25 m above the sea, then drops steeply into it
@@ -182,6 +197,9 @@ export class OuterWorld {
     f *= smoothstep(380, 620, d);
     f *= smoothstep(this.seaLevel + 2.5, this.seaLevel + 7, h);
     f *= 1 - smoothstep(0.85, 1.3, slope);
+    // no trees above the treeline
+    const tl = traits(this.course).snowLine;
+    if (tl !== undefined) f *= 1 - smoothstep(tl - 330, tl - 230, h - this.baseLevel);
     if (L.seaDir) f *= smoothstep(-40, -160, this.seaCoord(x, z));
     return f;
   }
@@ -282,6 +300,13 @@ export class OuterWorld {
   private makeLandMaterial(t: TerrainTextures): THREE.MeshStandardMaterial {
     const c = this.course.colors;
     const style = this.course.style;
+    const T = traits(this.course);
+    // autumn canopy: the average of the course's leaf colours
+    const canopy = new THREE.Color(0, 0, 0);
+    if (this.course.foliage?.length) {
+      for (const f of this.course.foliage) canopy.add(new THREE.Color(f));
+      canopy.multiplyScalar(1 / this.course.foliage.length).multiply(new THREE.Color(2.2, 1.5, 0.9));
+    }
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0 });
     const uniforms = {
       tRough: { value: t.rough.tex },
@@ -291,10 +316,18 @@ export class OuterWorld {
       aRough: { value: t.rough.avg },
       aSand: { value: t.sand.avg },
       aCliff: { value: t.cliff.avg },
-      cMeadow: { value: new THREE.Color(style === 'links' ? c.deep : c.rough) },
-      cDry: { value: new THREE.Color(style === 'links' ? c.fescue : style === 'coastal' ? 0xa08a52 : c.deep) },
+      cMeadow: { value: style === 'alpine' ? new THREE.Color(c.deep).multiplyScalar(0.75) : new THREE.Color(style === 'links' || style === 'desert' ? c.deep : c.rough) },
+      cDry: { value: new THREE.Color(style === 'links' || style === 'desert' ? c.fescue : style === 'coastal' ? 0xa08a52 : c.deep) },
       cSand: { value: new THREE.Color(c.sand) },
-      uDry: { value: style === 'parkland' ? 0.15 : style === 'coastal' ? 0.5 : 0.6 },
+      uDry: { value: T.dry },
+      cRock: { value: new THREE.Color(this.course.rock ?? 0x605850) },
+      cCanopy: { value: canopy },
+      uSnow: { value: T.snowLine !== undefined ? this.baseLevel + T.snowLine : 1e9 },
+      uStrata: { value: style === 'desert' ? 1 : 0.25 },
+      // desert: everything that rises off the valley floor is red rock
+      uRedRock: { value: style === 'desert' ? this.baseLevel + 12 : 1e9 },
+      // how high above the sea the beach sand reaches (a low tropical island stays green inland)
+      uBeach: { value: style === 'beach' ? new THREE.Vector2(0.4, 1.4) : new THREE.Vector2(1.2, 3.2) },
       cDeep: { value: new THREE.Color(c.deep) },
       cFescue: { value: new THREE.Color(c.fescue) },
       uFescue: { value: this.course.fescue ? 1 : 0 },
@@ -319,14 +352,15 @@ export class OuterWorld {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
           uniform sampler2D tRough, tSand, tCliff, tNoise;
-          uniform vec3 aRough, aSand, aCliff, cMeadow, cDry, cSand, cDeep, cFescue;
-          uniform float uDry, uSea, uTime, uCloudCover, uFescue;
+          uniform vec3 aRough, aSand, aCliff, cMeadow, cDry, cSand, cDeep, cFescue, cRock, cCanopy;
+          uniform float uDry, uSea, uTime, uCloudCover, uFescue, uSnow, uStrata, uRedRock;
+          uniform vec2 uBeach;
           uniform vec4 uRect;
           uniform vec2 uCloud;
           varying float vForest;
           varying vec3 vWPos;
           varying vec3 vWN;
-          float gForest, gCrownLod, gSteep;
+          float gForest, gCrownLod, gSteep, gSnow;
           vec3 gCrownN;
           ${CLOUD_GLSL}
           vec2 hash22(vec2 p) {
@@ -372,7 +406,7 @@ export class OuterWorld {
             col = mix(col, dc, near);
           }
           // beach and wet sand at the waterline
-          float beach = 1.0 - smoothstep(uSea + 1.2, uSea + 3.2, vWPos.y);
+          float beach = 1.0 - smoothstep(uSea + uBeach.x, uSea + uBeach.y, vWPos.y);
           vec3 sand = cSand * mix(vec3(1.0), texture2D(tSand, wp * 0.05).rgb / aSand, 0.5) * 0.45;
           sand *= mix(0.55, 1.0, smoothstep(uSea - 0.3, uSea + 0.9, vWPos.y));
           col = mix(col, sand, beach);
@@ -381,7 +415,18 @@ export class OuterWorld {
           vec3 bw = pow(abs(Nw), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
           vec3 rk = (texture2D(tCliff, vWPos.zy * 0.035).rgb * bw.x + texture2D(tCliff, wp * 0.035).rgb * bw.y + texture2D(tCliff, vWPos.xy * 0.035).rgb * bw.z) / aCliff;
           gSteep = smoothstep(0.78, 0.55, Nw.y);
-          col = mix(col, vec3(0.115, 0.098, 0.082) * rk, gSteep);
+          // rock strata: banded light and dark layers on the cliffs
+          float strata = 1.0 + uStrata * (0.3 * sin(vWPos.y * 0.45 + macro * 6.0) * sin(vWPos.y * 0.13 + 1.7) - 0.18);
+          // above the treeline: grass thins to scree and bare rock
+          float alpine = smoothstep(uSnow - 330.0, uSnow - 120.0, vWPos.y + 60.0 * (macro - 0.5));
+          col = mix(col, cRock * rk * 0.85 * (0.85 + 0.3 * macro2), alpine * 0.85);
+          col = mix(col, cRock * rk * strata * 0.9, smoothstep(uRedRock, uRedRock + 30.0, vWPos.y + 20.0 * (macro - 0.5)));
+          col = mix(col, cRock * rk * strata, gSteep);
+          // snow on the high peaks: settles on gentle slopes, leaves the steep faces as rock
+          float snowH = uSnow + 90.0 * (macro - 0.5) + 40.0 * (macro2 - 0.5);
+          float snow = smoothstep(snowH, snowH + 80.0, vWPos.y) * smoothstep(0.38, 0.68, Nw.y + 0.2 * (macro2 - 0.5));
+          col = mix(col, vec3(0.82, 0.85, 0.9) * (0.9 + 0.15 * macro2), snow);
+          gSnow = max(snow, alpine * 0.0);
           // forest canopy: individual crowns, faded to an average where they would alias
           float fn = texture2D(tNoise, wp * 0.011).r - 0.5;
           gForest = smoothstep(0.3, 0.6, vForest + fn * 0.35);
@@ -390,11 +435,12 @@ export class OuterWorld {
           gCrownLod = 1.0 - smoothstep(0.2, 0.55, length(fwidth(cp)));
           float inCrown = 1.0 - smoothstep(0.82, 1.05, cr.z);
           vec3 leaf = mix(vec3(0.03, 0.06, 0.022), vec3(0.055, 0.075, 0.03), cr.w) * (0.8 + 0.4 * macro2);
+          leaf *= mix(vec3(1.0), cCanopy * (0.7 + 0.6 * fract(cr.w * 7.3)), step(0.001, cCanopy.r + cCanopy.g));
           vec3 canopyCol = mix(vec3(0.012, 0.018, 0.01), leaf, inCrown);
           canopyCol = mix(vec3(0.04, 0.06, 0.025) * (0.8 + 0.4 * macro2), canopyCol, gCrownLod);
           float hz = sqrt(max(0.0, 1.0 - min(cr.z * cr.z, 1.0)));
           gCrownN = normalize(vec3(-cr.x, hz * 1.1 + 0.15, -cr.y));
-          col = mix(col, canopyCol, gForest);
+          col = mix(col, canopyCol, gForest * (1.0 - gSnow));
           diffuseColor.rgb = col;
           float gCloud = cloudShade(wp);
         `)
@@ -407,9 +453,9 @@ export class OuterWorld {
               normal = normalize(mix(normal, nV, k * 0.85));
             }
           }`)
-        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.95, 0.85, gForest);');
+        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(mix(0.95, 0.85, gForest), 0.6, gSnow);');
     };
-    mat.customProgramCacheKey = () => 'outer-land-v1';
+    mat.customProgramCacheKey = () => 'outer-land-v2';
     return mat;
   }
 
@@ -435,7 +481,7 @@ export class OuterWorld {
   private buildSea(t: TerrainTextures): THREE.Mesh {
     const wh = this.buildWorldHeightTexture(4000, 8);
     const geo = new THREE.PlaneGeometry(40000, 40000, 1, 1).rotateX(-Math.PI / 2);
-    const mat = makeSeaMaterial(t, wh.tex, wh.rect);
+    const mat = makeSeaMaterial(t, wh.tex, wh.rect, this.course.sea);
     const m = new THREE.Mesh(geo, mat);
     m.position.set(this.cx, this.seaLevel, this.cz);
     m.receiveShadow = true;
@@ -453,7 +499,7 @@ export class OuterWorld {
 }
 
 /** Open-sea material: depth tint from the world height map, breaking surf and foam at the shore. */
-export function makeSeaMaterial(t: TerrainTextures, heightTex: THREE.Texture, rect: THREE.Vector4): THREE.MeshPhysicalMaterial {
+export function makeSeaMaterial(t: TerrainTextures, heightTex: THREE.Texture, rect: THREE.Vector4, sea?: { shallow: number; deep: number }): THREE.MeshPhysicalMaterial {
   const mat = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
     roughness: 0.05,
@@ -470,6 +516,8 @@ export function makeSeaMaterial(t: TerrainTextures, heightTex: THREE.Texture, re
     shader.uniforms.tWorldH = { value: heightTex };
     shader.uniforms.uRect = { value: rect };
     shader.uniforms.tNoise = { value: t.noise };
+    shader.uniforms.cShallow = { value: sea ? new THREE.Color(sea.shallow).multiplyScalar(0.55) : new THREE.Color(0.05, 0.2, 0.19) };
+    shader.uniforms.cDeepSea = { value: sea ? new THREE.Color(sea.deep).multiplyScalar(0.55) : new THREE.Color(0.004, 0.03, 0.05) };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vSeaW;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSeaW = (modelMatrix * vec4(position, 1.0)).xyz;');
@@ -478,6 +526,7 @@ export function makeSeaMaterial(t: TerrainTextures, heightTex: THREE.Texture, re
         uniform float uTime;
         uniform sampler2D tWorldH, tNoise;
         uniform vec4 uRect;
+        uniform vec3 cShallow, cDeepSea;
         varying vec3 vSeaW;
         float gFoam;`)
       .replace('#include <map_fragment>', `
@@ -485,8 +534,8 @@ export function makeSeaMaterial(t: TerrainTextures, heightTex: THREE.Texture, re
         float inside = step(0.0, huv.x) * step(huv.x, 1.0) * step(0.0, huv.y) * step(huv.y, 1.0);
         float depth = mix(60.0, -texture2D(tWorldH, clamp(huv, 0.0, 1.0)).r, inside);
         float dist = length(vSeaW - cameraPosition);
-        vec3 shallow = vec3(0.05, 0.2, 0.19);
-        vec3 deep = vec3(0.004, 0.03, 0.05);
+        vec3 shallow = cShallow;
+        vec3 deep = cDeepSea;
         diffuseColor.rgb = mix(shallow, deep, smoothstep(0.0, 12.0, depth));
         diffuseColor.a = mix(0.35, 0.985, smoothstep(0.0, 4.0, depth));
         // surf: bands rolling toward the shore, broken up by noise

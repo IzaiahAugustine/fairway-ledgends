@@ -25,17 +25,30 @@ npm run build      # production build in dist/
 - **Swing styles:** Classic Tour, Power Bomber, Smooth Tempo, Precision Fader, Natural Draw and
   Short-Game Wizard change distance, accuracy, launch, spin, natural curve, the timing window and
   how the swing looks. AI opponents have personalities (Bomber, Grinder, Magician…) built on them.
-- **Weather:** fair, breezy, overcast or rain (falling rain, softer greens, slower roll); Pebble
-  Beach plays in low, warm late-afternoon light.
+- **Weather:** fair, breezy, overcast or rain (falling rain, softer greens, slower roll); the
+  desert plays in low, warm late-afternoon light and almost never sees rain.
 - **Putting:** realistic cup capture (pace and line decide lip-outs), a real hole cut in the green
   with the Blender cup liner, the ball dropping in, a TV-style cup camera, break readout, and ball
   markers on the green.
 - **Divots and pitch marks** (Blender-modelled scar and flying turf), shot replay, visible ball
   spin, spin control (backspin / topspin), crowd reactions and course ambience (surf, wind, birds).
-- **Four courses based on real 18-hole layouts:** Shinnecock Hills, Wykagyl Country Club, Pebble Beach
-  and the Old Course at St Andrews. Real pars and yardages (Wykagyl's back nine is approximate); terrain, hazards, green contours and
-  tree lines are generated from per-hole hints (doglegs, elevation, ponds, burns, ocean cliffs, pot
-  bunkers, fescue).
+- **Five original 18-hole courses, each in a different landscape:**
+  - *Coral Cove* (beach): white-sand beaches you can play from, Blender-built palm trees and
+    turquoise water along most holes, lagoons and ocean inlets.
+  - *Summit Peaks* (mountains, 8,000 ft): snow-capped peaks, a treeline, pine forest, glacier lakes
+    and big downhill tee shots. The thin air carries the ball about 12% farther.
+  - *Red Mesa* (desert): red-rock mesas, saguaro and barrel cacti, carries over rock canyons with
+    a river at the bottom, and firm, fast turf.
+  - *Thunder Bluffs* (sea cliffs): clifftop holes, gorse, heroic carries over ocean inlets and
+    strong sea wind.
+  - *Maple Hollow* (autumn parkland): fairways framed by red, orange and gold maples, creeks and
+    ponds.
+  Terrain, hazards, green contours and tree lines are generated from per-hole hints (doglegs,
+  elevation, ponds, creeks, canyons, beaches, ocean cliffs).
+- **Realistic ball physics:** drag and spin lift tuned to PGA Tour launch-monitor numbers (ball
+  speed, peak height and landing angle per club), a published turf-impact model (Penner) so irons
+  check up and wedges spin back on greens while long clubs run out, thinner air at altitude, and
+  firmer or softer turf by course and weather.
 - **Difficulty: Easy / Medium / Hard.** Changes the swing timing windows, how much of the shot and
   putt preview you get, and the AI opponent's skill and equipment.
 - **Mouse swing timing.** *Swing Stick* (default, like 2K): hold the left button, pull the mouse

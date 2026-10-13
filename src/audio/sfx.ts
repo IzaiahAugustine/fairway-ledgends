@@ -415,7 +415,7 @@ export class Sfx {
   }
 
   /** Course ambience: surf on coastal courses, wind on links, extra birdsong in parkland. */
-  setCourseAmbience(style: 'links' | 'parkland' | 'coastal', windMph: number) {
+  setCourseAmbience(style: { surf: boolean; birdRate: number; windNoise: number }, windMph: number) {
     const ctx = this.ensure();
     if (!ctx || !this.master) return;
     for (const l of this.layers) {
@@ -424,9 +424,10 @@ export class Sfx {
     }
     this.layers = [];
     const w = Math.min(1, windMph / 20);
-    if (style === 'coastal') this.layers.push(this.noiseLayer({ type: 'lowpass', freq: 520, q: 0.4, gain: 0.05, lfoRate: 0.11, lfoDepth: 0.04 }));
-    this.layers.push(this.noiseLayer({ type: 'bandpass', freq: 360 + 220 * w, q: 0.5, gain: 0.006 + 0.012 * w * (style === 'links' ? 1.3 : 1), lfoRate: 0.15 + 0.08 * w, lfoDepth: 0.004 + 0.009 * w }));
-    this.birdRate = style === 'parkland' ? 1.8 : style === 'coastal' ? 0.6 : 0.8;
+    // surf rolling in on the sea courses
+    if (style.surf) this.layers.push(this.noiseLayer({ type: 'lowpass', freq: 520, q: 0.4, gain: 0.05, lfoRate: 0.11, lfoDepth: 0.04 }));
+    this.layers.push(this.noiseLayer({ type: 'bandpass', freq: 360 + 220 * w, q: 0.5, gain: 0.006 + 0.012 * w * style.windNoise, lfoRate: 0.15 + 0.08 * w, lfoDepth: 0.004 + 0.009 * w }));
+    this.birdRate = style.birdRate;
     // a quiet murmur from the gallery
     this.layers.push(this.noiseLayer({ type: 'bandpass', freq: 480, q: 1.2, gain: 0.011, lfoRate: 0.05, lfoDepth: 0.006 }));
     this.startMower();

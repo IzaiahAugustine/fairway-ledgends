@@ -14,7 +14,8 @@ import numpy as np
 
 CONTRACT = ["Tree_Oak", "Tree_Pine", "Tree_Cypress", "Tree_Birch", "Bush_Gorse", "Bush_Green",
             "Flagstick", "Flag", "Cup", "TeeMarker", "Tee", "GolfBag", "Rock_A", "Rock_B", "Bench",
-            "Divot", "DivotChunk", "Spectator_A", "Spectator_B", "Spectator_C", "Spectator_Lo", "Grandstand"]
+            "Divot", "DivotChunk", "Spectator_A", "Spectator_B", "Spectator_C", "Spectator_Lo", "Grandstand",
+            "Tree_Palm_A", "Tree_Palm_B", "Tree_Palm_C", "Tree_Saguaro_A", "Tree_Saguaro_B", "Bush_Barrel_A"]
 
 CTYPES = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
 NCOMP = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}

@@ -80,7 +80,7 @@ function defaults(): SaveData {
     stats: { played: 0, won: 0, lost: 0, halved: 0, holesWon: 0, birdies: 0, eagles: 0, aces: 0 },
     best: {},
     swingStyle: 'classic',
-    settings: { swingMode: 'stick', gimmes: true, sound: true, quality: 'high', difficulty: 'medium', courseId: 'shinnecock', textSize: 'large', format: 'match', holes: 'front', weather: 'random', volMaster: 0.7, volEffects: 0.8, volAmbience: 0.5, volMusic: 0.5, musicInRound: false, wind: 'light', gfxPriority: 'balanced' },
+    settings: { swingMode: 'stick', gimmes: true, sound: true, quality: 'high', difficulty: 'medium', courseId: 'coral-cove', textSize: 'large', format: 'match', holes: 'front', weather: 'random', volMaster: 0.7, volEffects: 0.8, volAmbience: 0.5, volMusic: 0.5, musicInRound: false, wind: 'light', gfxPriority: 'balanced' },
     career: { stage: 0 },
   };
 }

@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { loadGLTF, loadTexture } from '../core/assets';
 import { Rng } from '../core/rng';
+import { COURSES } from '../data/courses';
 import type { TreeCollider } from '../physics/ballPhysics';
 import { HoleField, Surf, type TreeSpot } from './holeGen';
 import { ImpostorAtlas, buildImpostorMesh, type ImpostorInstance, type ImpostorSource } from './impostors';
@@ -13,7 +14,7 @@ import { buildTreeTemplates } from './treeGen';
 type Quality = 'low' | 'medium' | 'high';
 
 interface Template {
-  parts: { geometry: THREE.BufferGeometry; material: THREE.Material; matrix: THREE.Matrix4; depthMaterial?: THREE.Material }[];
+  parts: { geometry: THREE.BufferGeometry; material: THREE.Material; matrix: THREE.Matrix4; depthMaterial?: THREE.Material; leaf?: boolean }[];
   height: number;
   radius: number;
   /** Ball-collision shape at scale 1 (trees only). */
@@ -44,9 +45,16 @@ function getAtlas(quality: Quality): Promise<ImpostorAtlas> {
   if (!p) {
     p = getTemplates(quality).then((tpls) => {
       const sources: ImpostorSource[] = [];
+      const tints = new Set(COURSES.flatMap((c) => c.foliage ?? []));
       for (const [kind, list] of tpls) {
         if (!/^(Tree_|Bush_)/.test(kind)) continue;
-        list.forEach((t, i) => sources.push({ key: `${kind}#${i}`, parts: t.parts }));
+        list.forEach((t, i) => {
+          sources.push({ key: `${kind}#${i}`, parts: t.parts });
+          // autumn versions of the broadleaf trees
+          if (kind === 'Tree_Pine' || !t.parts.some((p) => p.leaf)) return;
+          for (const tint of tints)
+            sources.push({ key: `${kind}#${i}@${tint}`, parts: t.parts.map((p) => (p.leaf ? { ...p, material: autumnLeaf(p.material as THREE.MeshStandardMaterial, tint) } : p)) });
+        });
       }
       return new ImpostorAtlas(sources);
     });
@@ -64,7 +72,7 @@ async function loadTemplates(quality: Quality): Promise<Map<string, Template[]>>
       list.map((t) => ({ parts: t.parts, height: t.height, radius: t.radius, dims: kind.startsWith('Tree_') ? { trunkR: t.trunkR, crownY: t.crownY, crownR: t.crownR, crownH: t.crownH } : undefined })),
     );
   }
-  // rocks and benches still come from the Blender props
+  // rocks, benches, palms and cacti come from the Blender props
   const gltf = await loadGLTF('models/environment.glb');
   if (!gltf) return out;
   const rockTex = await loadTexture('rock_face_03_diff_1k.jpg').catch(() => null);
@@ -85,7 +93,7 @@ async function loadTemplates(quality: Quality): Promise<Map<string, Template[]>>
   };
   for (const root of gltf.scene.children) {
     const name = root.name;
-    if (!/^(Rock_|Bench)/.test(name)) continue;
+    if (!/^(Rock_|Bench|Tree_Palm_|Tree_Saguaro_|Bush_Barrel_)/.test(name)) continue;
     root.updateMatrixWorld(true);
     const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
     const parts: Template['parts'] = [];
@@ -109,9 +117,45 @@ async function loadTemplates(quality: Quality): Promise<Map<string, Template[]>>
       mesh.geometry.computeBoundingBox();
       box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(local));
     });
-    out.set(name, [{ parts, height: box.max.y, radius: Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2 }]);
+    const height = box.max.y;
+    const radius = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
+    // variants (Tree_Palm_A, _B, ...) group into one kind
+    const kind = /^(Tree_|Bush_)/.test(name) ? name.replace(/_[A-Z]$/, '') : name;
+    const dims = kind === 'Tree_Palm'
+      ? { trunkR: 0.22, crownY: height - 1.6, crownR: radius * 0.8, crownH: 1.6 }
+      : kind === 'Tree_Saguaro'
+        ? { trunkR: 0.34, crownY: height * 0.6, crownR: 0.9, crownH: height * 0.4 }
+        : undefined;
+    const list = out.get(kind) ?? [];
+    list.push({ parts, height, radius, dims });
+    out.set(kind, list);
   }
   return out;
+}
+
+const autumnCache = new Map<string, THREE.Material>();
+/** A leaf material tinted to an autumn colour (shares the original's shader). */
+function autumnLeaf(m: THREE.MeshStandardMaterial, tint: number): THREE.Material {
+  const key = `${m.uuid}|${tint}`;
+  let c = autumnCache.get(key);
+  if (!c) {
+    const mm = m.clone();
+    const base = m.onBeforeCompile;
+    const baseKey = m.customProgramCacheKey();
+    const uAutumn = { value: new THREE.Color(tint) };
+    // the photo leaves are green: keep their light and shade, swap the hue for the autumn colour
+    mm.onBeforeCompile = (shader, r) => {
+      base.call(m, shader, r);
+      shader.uniforms.uAutumn = uAutumn;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform vec3 uAutumn;')
+        .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb = dot(diffuseColor.rgb, vec3(0.35, 0.55, 0.1)) * uAutumn * 1.9;');
+    };
+    mm.customProgramCacheKey = () => `${baseKey}-autumn`;
+    c = mm;
+    autumnCache.set(key, c);
+  }
+  return c;
 }
 
 function fallbackTemplate(kind: string): Template {
@@ -144,11 +188,15 @@ export class Vegetation {
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const up = new THREE.Vector3(0, 1, 0);
+    // autumn: each variant of the broadleaf trees takes one of the course's leaf colours
+    const foliage = field.course.foliage;
     for (const [key, list] of spots) {
       const [kind, vs] = key.split('#');
       const tpl = templates.get(kind)?.[Number(vs)] ?? fallbackTemplate(kind);
+      const tint = foliage && kind !== 'Tree_Pine' && kind.startsWith('Tree_') ? foliage[Number(vs) % foliage.length] : null;
       for (const part of tpl.parts) {
-        const inst = new THREE.InstancedMesh(part.geometry, part.material, list.length);
+        const material = part.leaf && tint !== null ? autumnLeaf(part.material as THREE.MeshStandardMaterial, tint) : part.material;
+        const inst = new THREE.InstancedMesh(part.geometry, material, list.length);
         list.forEach((s, i) => {
           const prop = kind === 'Bench';
           const y = field.heightAt(s.x, s.z) - (prop ? 0 : kind.startsWith('Rock') ? 0.25 * s.scale : 0.15);
@@ -173,18 +221,19 @@ export class Vegetation {
       }
     }
     this.buildObStakes(field);
-    if (outer) await this.buildImpostors(outer, templates, quality);
+    if (outer) await this.buildImpostors(outer, templates, quality, field.course.foliage);
   }
 
   /** Card trees in the band around the hole. */
-  private async buildImpostors(outer: OuterWorld, templates: Map<string, Template[]>, quality: Quality) {
+  private async buildImpostors(outer: OuterWorld, templates: Map<string, Template[]>, quality: Quality, foliage?: number[]) {
     const atlas = await getAtlas(quality);
     const tint = new THREE.Color();
     const list: ImpostorInstance[] = outer.impostorSpots().map((s, i) => {
       const nv = templates.get(s.kind)?.length ?? 1;
       const v = (i * 2654435761) % nv;
       const k = 0.98 + ((i * 40503) % 100) / 100 * 0.3;
-      return { key: `${s.kind}#${v}`, x: s.x, y: s.y, z: s.z, scale: s.scale, tint: tint.setRGB(k, k * (0.97 + ((i * 7) % 10) / 160), k * 0.95).clone() };
+      const autumn = foliage && atlas.has(`${s.kind}#${v}@${foliage[v % foliage.length]}`) ? `@${foliage[v % foliage.length]}` : '';
+      return { key: `${s.kind}#${v}${autumn}`, x: s.x, y: s.y, z: s.z, scale: s.scale, tint: tint.setRGB(k, k * (0.97 + ((i * 7) % 10) / 160), k * 0.95).clone() };
     });
     const mesh = buildImpostorMesh(atlas, list);
     if (mesh) {

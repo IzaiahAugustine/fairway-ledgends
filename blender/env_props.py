@@ -26,6 +26,7 @@ from env_mesh import MeshAccum, unit, new_empty, smoothstep, any_perp
 import env_divot
 import env_spectators
 import env_grandstand
+import env_exotic
 
 X3 = np.array([1.0, 0, 0])
 Y3 = np.array([0, 1.0, 0])
@@ -395,6 +396,7 @@ def build_props(scene, asset_collection, simple_material):
     multi("DivotChunk", {"DivotSoil": soil, "DivotGrass": turf}, colors=True)
     env_spectators.build(scene, asset_collection, simple_material, report)
     multi("Grandstand", env_grandstand.grandstand())
+    env_exotic.build(scene, asset_collection, simple_material, report, new_empty)
     for name, radii, seed, planes, ratio in (("Rock_A", (0.78, 0.62, 0.58), 5, 13, 0.32),
                                              ("Rock_B", (0.42, 0.34, 0.30), 9, 11, 0.18)):
         coll = asset_collection(scene, name)

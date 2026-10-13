@@ -18,19 +18,19 @@ export interface ClubDef {
 }
 
 export const CLUBS: ClubDef[] = [
-  { id: 'dr', short: 'DR', name: 'Driver', kind: 'driver', loft: 10.5, carry: 265, launch: 12.5, spin: 2650, anim: 'Driver', model: 'Club_Driver' },
-  { id: '3w', short: '3W', name: '3 Wood', kind: 'wood', loft: 15, carry: 240, launch: 11.5, spin: 3500, anim: 'Wood', model: 'Club_Wood' },
-  { id: '3h', short: '3H', name: '3 Hybrid', kind: 'hybrid', loft: 19, carry: 220, launch: 12.5, spin: 4200, anim: 'Wood', model: 'Club_Hybrid' },
-  { id: '4i', short: '4i', name: '4 Iron', kind: 'iron', loft: 22, carry: 205, launch: 13.5, spin: 4700, anim: 'Iron', model: 'Club_Iron' },
-  { id: '5i', short: '5i', name: '5 Iron', kind: 'iron', loft: 25, carry: 193, launch: 14.5, spin: 5300, anim: 'Iron', model: 'Club_Iron' },
-  { id: '6i', short: '6i', name: '6 Iron', kind: 'iron', loft: 28, carry: 181, launch: 16, spin: 6000, anim: 'Iron', model: 'Club_Iron' },
-  { id: '7i', short: '7i', name: '7 Iron', kind: 'iron', loft: 32, carry: 169, launch: 17.5, spin: 6800, anim: 'Iron', model: 'Club_Iron' },
-  { id: '8i', short: '8i', name: '8 Iron', kind: 'iron', loft: 36, carry: 157, launch: 19.5, spin: 7600, anim: 'Iron', model: 'Club_Iron' },
-  { id: '9i', short: '9i', name: '9 Iron', kind: 'iron', loft: 41, carry: 144, launch: 21.5, spin: 8300, anim: 'Iron', model: 'Club_Iron' },
-  { id: 'pw', short: 'PW', name: 'Pitching Wedge', kind: 'wedge', loft: 46, carry: 132, launch: 24, spin: 8900, anim: 'Wedge', model: 'Club_Wedge' },
-  { id: 'gw', short: 'GW', name: 'Gap Wedge', kind: 'wedge', loft: 50, carry: 118, launch: 26.5, spin: 9300, anim: 'Wedge', model: 'Club_Wedge' },
-  { id: 'sw', short: 'SW', name: 'Sand Wedge', kind: 'wedge', loft: 56, carry: 102, launch: 29.5, spin: 9800, anim: 'Wedge', model: 'Club_Wedge' },
-  { id: 'lw', short: 'LW', name: 'Lob Wedge', kind: 'wedge', loft: 60, carry: 86, launch: 32.5, spin: 10200, anim: 'Wedge', model: 'Club_Wedge' },
+  { id: 'dr', short: 'DR', name: 'Driver', kind: 'driver', loft: 10.5, carry: 265, launch: 10.8, spin: 2600, anim: 'Driver', model: 'Club_Driver' },
+  { id: '3w', short: '3W', name: '3 Wood', kind: 'wood', loft: 15, carry: 240, launch: 10.4, spin: 3700, anim: 'Wood', model: 'Club_Wood' },
+  { id: '3h', short: '3H', name: '3 Hybrid', kind: 'hybrid', loft: 19, carry: 220, launch: 12.2, spin: 4500, anim: 'Wood', model: 'Club_Hybrid' },
+  { id: '4i', short: '4i', name: '4 Iron', kind: 'iron', loft: 22, carry: 205, launch: 12.8, spin: 5100, anim: 'Iron', model: 'Club_Iron' },
+  { id: '5i', short: '5i', name: '5 Iron', kind: 'iron', loft: 25, carry: 193, launch: 13.6, spin: 5600, anim: 'Iron', model: 'Club_Iron' },
+  { id: '6i', short: '6i', name: '6 Iron', kind: 'iron', loft: 28, carry: 181, launch: 15, spin: 6350, anim: 'Iron', model: 'Club_Iron' },
+  { id: '7i', short: '7i', name: '7 Iron', kind: 'iron', loft: 32, carry: 169, launch: 16.3, spin: 7050, anim: 'Iron', model: 'Club_Iron' },
+  { id: '8i', short: '8i', name: '8 Iron', kind: 'iron', loft: 36, carry: 157, launch: 18.2, spin: 7900, anim: 'Iron', model: 'Club_Iron' },
+  { id: '9i', short: '9i', name: '9 Iron', kind: 'iron', loft: 41, carry: 144, launch: 20.4, spin: 8600, anim: 'Iron', model: 'Club_Iron' },
+  { id: 'pw', short: 'PW', name: 'Pitching Wedge', kind: 'wedge', loft: 46, carry: 132, launch: 24, spin: 9250, anim: 'Wedge', model: 'Club_Wedge' },
+  { id: 'gw', short: 'GW', name: 'Gap Wedge', kind: 'wedge', loft: 50, carry: 118, launch: 27, spin: 9700, anim: 'Wedge', model: 'Club_Wedge' },
+  { id: 'sw', short: 'SW', name: 'Sand Wedge', kind: 'wedge', loft: 56, carry: 102, launch: 30, spin: 10100, anim: 'Wedge', model: 'Club_Wedge' },
+  { id: 'lw', short: 'LW', name: 'Lob Wedge', kind: 'wedge', loft: 60, carry: 86, launch: 33, spin: 10400, anim: 'Wedge', model: 'Club_Wedge' },
   { id: 'pt', short: 'PT', name: 'Putter', kind: 'putter', loft: 3, carry: 0, launch: 0, spin: 0, anim: 'Putt', model: 'Club_Putter' },
 ];
 

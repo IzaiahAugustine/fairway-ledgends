@@ -1,4 +1,4 @@
-// The menu backdrop: a real course scene (Pebble Beach's 7th, by the ocean) with the player's
+// The menu backdrop: a real course scene (Coral Cove's 6th, by the sea) with the player's
 // golfer standing on the tee, lit and rendered exactly like a round, with a slow cinematic drift.
 import * as THREE from 'three';
 import type { Appearance, Quality } from '../core/save';
@@ -43,8 +43,8 @@ export class MenuStage {
   }
 
   async build(quality: Quality) {
-    const course = courseById('pebble');
-    const field = new HoleField(course, 6, 7);
+    const course = courseById('coral-cove');
+    const field = new HoleField(course, 5, 7);
     this.field = field;
     const tex = await loadTerrainTextures();
     const terrain = buildTerrainMesh(field, course, tex, 2);

@@ -1,7 +1,7 @@
 // Procedural hole layout: centre path, fairway, rough, greens, bunkers, water and terrain heights.
 // Everything is baked into a 0.5 m grid that both the renderer and the ball physics read.
 import { Noise2D, Rng, clamp, lerp, smoothstep, YARD } from '../core/rng';
-import type { CourseDef, HoleDef } from '../data/courses';
+import { traits, type CourseDef, type HoleDef } from '../data/courses';
 
 export enum Surf {
   OB = 0,
@@ -50,6 +50,8 @@ export interface Crossing {
   half: number;
   level: number;
   ocean: boolean;
+  /** Deep rock ravine (desert) rather than a burn. */
+  canyon?: boolean;
 }
 
 export interface TreeSpot {
@@ -249,7 +251,7 @@ export class HoleField {
     const fx = endT.x, fz = endT.z; // forward
     const rx = -fz, rz = fx; // right
     this.greenTilt = { x: (fx + rx * side) * slope, z: (fz + rz * side) * slope };
-    this.greenAmp = rng.range(0.025, 0.045) * (c.style === 'links' ? 1.25 : 1);
+    this.greenAmp = rng.range(0.025, 0.045) * traits(c).greenAmp;
     this.greenTier = rng.chance(0.3) ? rng.range(0.15, 0.28) : 0;
 
     // Cup position: within the green, away from the edge.
@@ -261,12 +263,12 @@ export class HoleField {
     this.cup = { x: this.green.x + fx * lu + rx * lv, z: this.green.z + fz * lu + rz * lv };
 
     // Fairway extents.
-    this.fwBase = (c.style === 'links' ? 19 : c.style === 'coastal' ? 15 : 15.5) * (d.fwWidth ?? 1);
+    this.fwBase = traits(c).fwWidth * (d.fwWidth ?? 1);
     if (par3) {
       this.fwStart = Math.max(0, L - this.green.rx - 28);
       this.fwEnd = L - this.green.rx * 0.6;
     } else {
-      this.fwStart = Math.min(d.par === 5 ? 150 : 130, L * 0.3) * (c.style === 'links' ? 0.75 : 1);
+      this.fwStart = Math.min(d.par === 5 ? 150 : 130, L * 0.3) * traits(c).fwStartMul;
       this.fwEnd = L - this.green.rx * 0.5;
     }
 
@@ -296,6 +298,11 @@ export class HoleField {
       }
       if (w === 'chasm') {
         this.crossings.push({ s: L * rng.range(0.55, 0.62), half: 26, level: 0, ocean: true });
+      }
+      if (w === 'canyon') {
+        // par 3s carry it from the tee; longer holes cross it in the second-shot zone
+        const at = d.par === 3 ? rng.range(0.45, 0.55) : rng.range(0.56, 0.64);
+        this.crossings.push({ s: L * at, half: d.par === 3 ? 13 : 16, level: 0, ocean: false, canyon: true });
       }
     }
     this.oceanBehind = !!d.oceanBehind;
@@ -464,11 +471,11 @@ export class HoleField {
   }
 
   private roughHalf(s: number): number {
-    return this.fwHalf(s) + (this.course.style === 'links' ? 9 : 12) + 5 * this.noise.noise(s * 0.02, 9.1 + this.index);
+    return this.fwHalf(s) + traits(this.course).roughBand + 5 * this.noise.noise(s * 0.02, 9.1 + this.index);
   }
 
   private obHalf(s: number): number {
-    return this.fwHalf(s) + (this.course.style === 'parkland' ? 62 : 78) + 8 * this.noise.noise(s * 0.01, 2.3);
+    return this.fwHalf(s) + traits(this.course).obBand + 8 * this.noise.noise(s * 0.01, 2.3);
   }
 
   // ---------------------------------------------------------------- baking
@@ -516,14 +523,15 @@ export class HoleField {
       return baseH(x, z, pc.s, Math.abs(pc.d));
     };
     const g = this.green;
-    const gBase = ref(g.x, g.z) + (c.style === 'parkland' ? 0.7 : c.style === 'coastal' ? 0.4 : 0.15);
+    const T = traits(c);
+    const gBase = ref(g.x, g.z) + T.greenRaise;
     g.h = gBase;
-    const teeBase = ref(this.tee.x, this.tee.z) + (c.style === 'links' ? 0.4 : 0.8);
+    const teeBase = ref(this.tee.x, this.tee.z) + T.teeRaise;
     this.teeH = teeBase;
     for (const p of this.ponds) p.level = Math.min(ref(p.x, p.z), ref(p.x + p.rx, p.z), ref(p.x - p.rx, p.z), ref(p.x, p.z + p.rz), ref(p.x, p.z - p.rz)) - 0.5;
     for (const cr of this.crossings) {
       const p = this.pointAt(cr.s);
-      cr.level = cr.ocean ? 0 : ref(p.x, p.z) - 0.9;
+      cr.level = cr.ocean ? 0 : ref(p.x, p.z) - (cr.canyon ? 9 : 0.9);
     }
     // Sea level well below the cliff tops.
     let minRef = Infinity;
@@ -531,14 +539,14 @@ export class HoleField {
       const p = this.pointAt(s);
       minRef = Math.min(minRef, ref(p.x, p.z));
     }
-    this.seaLevel = minRef - 11;
+    this.seaLevel = minRef - T.seaDrop;
     for (const cr of this.crossings) if (cr.ocean) cr.level = this.seaLevel;
 
     const fwd = this.tangentAt(L - 2);
     const right = { x: -fwd.z, z: fwd.x };
     const teeFwd = this.teeDir;
     const teeRight = { x: -teeFwd.z, z: teeFwd.x };
-    const style = c.style;
+    const native = T.carryNative;
 
     for (let j = 0; j < nz; j++) {
       const z = minZ + j * CELL;
@@ -561,7 +569,7 @@ export class HoleField {
         let dFw = Math.min(fwH - ad, s - (this.fwStart + edgeLow * 5), this.fwEnd + 30 - s);
         let dDeep = ad - rH;
         let dGreen = -9, dFringe = -9, dTee = -9, dBunk = -9, dWet = -9;
-        if (style === 'links') dDeep = Math.max(dDeep, Math.min(this.fwStart - 5 - s, rH - ad, s - 22));
+        if (native) dDeep = Math.max(dDeep, Math.min(this.fwStart - 5 - s, rH - ad, s - 22));
         dDeep = Math.max(dDeep, s - (L + 22), -55 - s);
         if (inFwRange && ad < fwH) surf = Surf.Fairway;
         else if (ad < rH) surf = Surf.Rough;
@@ -569,7 +577,7 @@ export class HoleField {
         else surf = Surf.OB;
         // short of the fairway (carry zone) is rough on parkland, fescue on links
         if (s < this.fwStart && surf === Surf.Fairway) surf = Surf.Rough;
-        if (s < this.fwStart - 5 && ad < rH && style === 'links' && s > 22) surf = Surf.Deep;
+        if (s < this.fwStart - 5 && ad < rH && native && s > 22) surf = Surf.Deep;
         // behind the tee and past the green
         if (s < -55 || s > L + 60) surf = ad < rH && s > -55 ? Surf.Rough : Surf.OB;
         if (s > L + 22 && surf === Surf.Rough) surf = Surf.Deep;
@@ -590,7 +598,7 @@ export class HoleField {
           const w = 1 - smoothstep(1.0, 2.2, gd);
           h = lerp(h, gh, w);
           // collar mound
-          h += 0.25 * Math.exp(-((gd - 1.25) * (gd - 1.25)) / 0.05) * (style === 'parkland' ? 1 : 0.4);
+          h += 0.25 * Math.exp(-((gd - 1.25) * (gd - 1.25)) / 0.05) * T.collar;
           if (gd < 1) surf = Surf.Green;
           else if (gd < 1 + 1.4 / Math.min(g.rx, g.rz)) surf = Surf.Fringe;
           else if (gd < 1.9 && surf !== Surf.Fairway) surf = Surf.Rough;
@@ -662,6 +670,17 @@ export class HoleField {
             const t = 1 - smoothstep(cr.half - 2, cr.half + 6, ds);
             h = lerp(h, cr.level - 3, t);
             if (ds < cr.half + 1) surf = Surf.Water;
+          } else if (cr.canyon) {
+            // sheer rock walls down to a river; ragged rims
+            const rim = cr.half + 2.5 * noise.noise(x * 0.05 + 7, z * 0.05 - 3);
+            const t = 1 - smoothstep(rim - 5, rim + 0.5, ds);
+            const ledge = 1.6 * noise.ridged(x * 0.08, z * 0.08, 2) * (1 - t);
+            h = Math.min(h, lerp(h, cr.level - 0.8 + ledge, t));
+            dWet = Math.max(dWet, cr.level + 0.05 - h);
+            dDeep = Math.max(dDeep, rim + 3 - ds);
+            dFw = Math.min(dFw, ds - rim - 4);
+            if (h < cr.level) surf = Surf.Water;
+            else if (ds < rim + 3 && surf !== Surf.Green && surf !== Surf.Fringe && surf !== Surf.Tee) surf = Surf.Deep;
           } else {
             const t = 1 - smoothstep(cr.half * 0.6, cr.half + 1.6, ds);
             h = Math.min(h, lerp(h, cr.level - 0.6, t));
@@ -682,7 +701,23 @@ export class HoleField {
             const past = s - (L + g.rx + 10 + 5 * noise.noise(sd * 0.05, 4.4));
             o = Math.max(o, past);
           }
-          if (o > -1) {
+          if (T.shore === 'beach') {
+            // a sand beach: rough gives way to sand that shelves gently into the sea
+            if (o > -6) {
+              const beachTop = this.seaLevel + 0.9;
+              h = lerp(h, beachTop, smoothstep(-6, 6, o));
+              h = lerp(h, this.seaLevel - 2.5, smoothstep(8, 40, o));
+              h += 0.25 * noise.noise(x * 0.04, z * 0.04) * (1 - smoothstep(8, 20, o));
+              const sandEdge = o + 2 + 1.5 * noise.noise(x * 0.06 + 2, z * 0.06);
+              if (surf !== Surf.Green && surf !== Surf.Fringe && surf !== Surf.Tee) {
+                dBunk = Math.max(dBunk, sandEdge);
+                dFw = Math.min(dFw, -sandEdge - 2);
+                dDeep = Math.min(dDeep, -sandEdge);
+                if (sandEdge > 0) surf = Surf.Bunker;
+              }
+              if (h < this.seaLevel) surf = Surf.Water;
+            }
+          } else if (o > -1) {
             const t = smoothstep(-1, 9, o);
             const rock = 2.5 * noise.ridged(x * 0.07, z * 0.07, 2);
             h = lerp(h, this.seaLevel - 4 + rock * (1 - t), t);

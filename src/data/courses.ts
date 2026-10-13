@@ -1,5 +1,5 @@
-// Course catalog. Yardages and pars follow the real courses (Wykagyl's back nine is approximate); terrain, hazards and green
-// contours are generated procedurally from these hints, so holes are "inspired by" the real ones.
+// Course catalog: five original courses, each in a different kind of landscape. Terrain, hazards
+// and green contours are generated from these hints; the style picks the landscape around them.
 
 export type WaterKind =
   | 'pond-front' // pond short of the green
@@ -8,7 +8,8 @@ export type WaterKind =
   | 'burn' // creek crossing in front of the green
   | 'ocean-right'
   | 'ocean-left'
-  | 'chasm'; // ocean inlet crossing the hole
+  | 'chasm' // ocean inlet crossing the hole
+  | 'canyon'; // deep rock ravine with a river at the bottom, crossing the hole
 
 export interface HoleDef {
   par: 3 | 4 | 5;
@@ -33,7 +34,7 @@ export interface HoleDef {
   oceanBehind?: boolean;
 }
 
-export type CourseStyle = 'links' | 'parkland' | 'coastal';
+export type CourseStyle = 'links' | 'parkland' | 'coastal' | 'beach' | 'alpine' | 'desert';
 
 export interface CourseDef {
   id: string;
@@ -55,181 +56,315 @@ export interface CourseDef {
   firmness: number;
   windMin: number;
   windMax: number;
+  /** Metres above sea level. Thinner air: the ball flies farther. */
+  altitude?: number;
+  /** Autumn colours: leaf tints for the tree variants (pines stay green). */
+  foliage?: number[];
+  /** Rock colour for cliffs and canyon walls. */
+  rock?: number;
+  /** Sea colours, shallow and deep. */
+  sea?: { shallow: number; deep: number };
   colors: { fairway: number; rough: number; green: number; deep: number; sand: number; fescue: number };
   holes: HoleDef[];
 }
 
+/** How each style shapes the land: corridor widths, the coast, the far landscape, weather and sound. */
+export interface StyleTraits {
+  /** Fairway half-width (m) and the first cut of rough beyond it. */
+  fwWidth: number;
+  roughBand: number;
+  /** Out-of-bounds distance beyond the fairway edge. */
+  obBand: number;
+  /** Native grass (fescue / scrub) in the carry zone short of the fairway. */
+  carryNative: boolean;
+  fwStartMul: number;
+  greenRaise: number;
+  teeRaise: number;
+  /** Collar mound around greens (1 = parkland push-up greens). */
+  collar: number;
+  greenAmp: number;
+  /** How the hole meets the sea: cliffs, or a sand beach shelving into the water. */
+  shore: 'cliff' | 'beach';
+  /** Sea level below the lowest point of the centre line. */
+  seaDrop: number;
+  /** Sea along one side of every hole in the backdrop, and how far beyond the hole edge. */
+  seaAlways: boolean;
+  seaDist: number;
+  cliffs: boolean;
+  rolling: number;
+  ridge: number;
+  /** Distance where the far ridges start to rise. */
+  ridgeNear: number;
+  forest: number;
+  /** How much of the far land is dry grass / bare ground. */
+  dry: number;
+  cliffRock: number;
+  /** Height above the hole where snow covers the far mountains (alpine); the treeline sits below it. */
+  snowLine?: number;
+  weather: { fair: number; breezy: number; overcast: number; rain: number };
+  haze: number;
+  cloudCover: number;
+  /** Warm late-afternoon sun. */
+  golden: boolean;
+  surf: boolean;
+  birdRate: number;
+  windNoise: number;
+}
+
+export const STYLE: Record<CourseStyle, StyleTraits> = {
+  links: {
+    fwWidth: 19, roughBand: 9, obBand: 78, carryNative: true, fwStartMul: 0.75, greenRaise: 0.15, teeRaise: 0.4, collar: 0.4, greenAmp: 1.25,
+    shore: 'beach', seaDrop: 11, seaAlways: true, seaDist: 1500, cliffs: false, rolling: 5, ridge: 30, ridgeNear: 700, forest: 0.08, dry: 0.6, cliffRock: 0.2,
+    weather: { fair: 4, breezy: 3, overcast: 2, rain: 1 }, haze: 0.00022, cloudCover: 0.35, golden: false, surf: false, birdRate: 0.8, windNoise: 1.3,
+  },
+  parkland: {
+    fwWidth: 15.5, roughBand: 12, obBand: 62, carryNative: false, fwStartMul: 1, greenRaise: 0.7, teeRaise: 0.8, collar: 1, greenAmp: 1,
+    shore: 'cliff', seaDrop: 11, seaAlways: false, seaDist: 1500, cliffs: false, rolling: 16, ridge: 75, ridgeNear: 700, forest: 0.8, dry: 0.15, cliffRock: 0.75,
+    weather: { fair: 6, breezy: 2, overcast: 1, rain: 1 }, haze: 0.00022, cloudCover: 0.3, golden: false, surf: false, birdRate: 1.8, windNoise: 1,
+  },
+  coastal: {
+    fwWidth: 15, roughBand: 12, obBand: 78, carryNative: false, fwStartMul: 1, greenRaise: 0.4, teeRaise: 0.8, collar: 0.4, greenAmp: 1,
+    shore: 'cliff', seaDrop: 11, seaAlways: true, seaDist: 650, cliffs: true, rolling: 14, ridge: 230, ridgeNear: 700, forest: 0.4, dry: 0.5, cliffRock: 1,
+    weather: { fair: 4, breezy: 4, overcast: 2, rain: 1 }, haze: 0.0003, cloudCover: 0.4, golden: false, surf: true, birdRate: 0.6, windNoise: 1.3,
+  },
+  beach: {
+    fwWidth: 17, roughBand: 10, obBand: 70, carryNative: false, fwStartMul: 0.85, greenRaise: 0.35, teeRaise: 0.6, collar: 0.4, greenAmp: 1,
+    shore: 'beach', seaDrop: 2.6, seaAlways: true, seaDist: 260, cliffs: false, rolling: 4, ridge: 140, ridgeNear: 900, forest: 0.45, dry: 0.25, cliffRock: 0.3,
+    weather: { fair: 7, breezy: 3, overcast: 1, rain: 1 }, haze: 0.00018, cloudCover: 0.2, golden: false, surf: true, birdRate: 0.9, windNoise: 1,
+  },
+  alpine: {
+    fwWidth: 16, roughBand: 11, obBand: 60, carryNative: false, fwStartMul: 1, greenRaise: 0.6, teeRaise: 0.9, collar: 0.7, greenAmp: 1.1,
+    shore: 'cliff', seaDrop: 11, seaAlways: false, seaDist: 1500, cliffs: false, rolling: 40, ridge: 1050, ridgeNear: 650, forest: 0.85, dry: 0.2, cliffRock: 1,
+    snowLine: 430,
+    weather: { fair: 6, breezy: 2, overcast: 2, rain: 1 }, haze: 0.00012, cloudCover: 0.3, golden: false, surf: false, birdRate: 1.2, windNoise: 1.1,
+  },
+  desert: {
+    fwWidth: 15.5, roughBand: 6, obBand: 55, carryNative: true, fwStartMul: 0.9, greenRaise: 0.5, teeRaise: 0.8, collar: 0.5, greenAmp: 1.1,
+    shore: 'cliff', seaDrop: 11, seaAlways: false, seaDist: 1500, cliffs: false, rolling: 18, ridge: 420, ridgeNear: 600, forest: 0, dry: 0.95, cliffRock: 1,
+    weather: { fair: 10, breezy: 3, overcast: 1, rain: 0 }, haze: 0.00016, cloudCover: 0.12, golden: true, surf: false, birdRate: 0.35, windNoise: 1.2,
+  },
+};
+
+export const traits = (c: CourseDef) => STYLE[c.style];
+
 export const COURSES: CourseDef[] = [
   {
-    id: 'shinnecock',
-    name: 'Shinnecock Hills',
-    location: 'Southampton, New York',
-    blurb: 'Windswept links-style test on the sandy hills of Long Island. Firm fairways, golden fescue and deep bunkers.',
-    style: 'links',
+    id: 'coral-cove',
+    name: 'Coral Cove',
+    location: 'Isla Coralina, Caribbean',
+    blurb: 'White-sand beaches, swaying palms and turquoise water on almost every hole. Miss right and you are on the beach.',
+    style: 'beach',
+    hdri: 'kloppenheim_05_puresky',
+    envIntensity: 0.8,
+    sunIntensity: 4.4,
+    exposure: 0.92,
+    trees: ['Tree_Palm', 'Tree_Palm', 'Tree_Palm', 'Tree_Cypress'],
+    treeDensity: 0.4,
+    bushes: ['Bush_Green'],
+    bushDensity: 0.35,
+    fescue: false,
+    relief: 3,
+    dunes: 1.2,
+    firmness: 1.1,
+    windMin: 6,
+    windMax: 15,
+    sea: { shallow: 0x2fc2b8, deep: 0x05507a },
+    colors: { fairway: 0x74b23c, rough: 0x5e9a34, green: 0x66b044, deep: 0x8c9c56, sand: 0xf2ead2, fescue: 0xc8b680 },
+    holes: [
+      { par: 4, yards: 390, name: 'Sea Grape', bend: -6, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 4, yards: 425, name: 'Conch', bend: -8, bendAt: 0.58, water: ['ocean-left'], greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 3, yards: 165, name: 'Lagoon', water: ['pond-front'], greenBunkers: 2, greenSlope: 2 },
+      { par: 5, yards: 545, name: 'Trade Winds', bend: 10, bendAt: 0.45, bend2: -8, bend2At: 0.78, water: ['ocean-right'], greenBunkers: 3, fairwayBunkers: 2 },
+      { par: 4, yards: 380, name: 'Coconut Grove', bend: 12, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2, elev: 2 },
+      { par: 3, yards: 205, name: 'Shipwreck', water: ['ocean-right'], oceanBehind: true, greenBunkers: 2, greenSize: 0.85 },
+      { par: 4, yards: 440, name: 'Pelican', bend: -10, bendAt: 0.6, water: ['ocean-left'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 4, yards: 355, name: 'The Reef', water: ['chasm', 'ocean-right'], greenBunkers: 3, greenSize: 0.85 },
+      { par: 5, yards: 560, name: 'Sunset', bend: -6, bendAt: 0.45, bend2: 8, bend2At: 0.78, water: ['ocean-left'], greenBunkers: 3, fairwayBunkers: 2 },
+      { par: 4, yards: 410, name: 'Mangrove', bend: 6, bendAt: 0.6, water: ['pond-left'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 3, yards: 150, name: 'Flamingo', water: ['pond-front'], greenBunkers: 2, greenSize: 0.8, greenSlope: 2.4 },
+      { par: 4, yards: 460, name: 'Barefoot', bend: 6, bendAt: 0.55, water: ['ocean-right'], greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 4, yards: 330, name: 'Hammock', bend: -14, bendAt: 0.62, greenBunkers: 3, fairwayBunkers: 3, greenSize: 0.85 },
+      { par: 5, yards: 530, name: 'Tidepool', bend: 8, bendAt: 0.5, water: ['ocean-left'], greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 4, yards: 430, name: 'Driftwood', bend: 8, bendAt: 0.58, greenBunkers: 2, fairwayBunkers: 2, elev: -2 },
+      { par: 3, yards: 190, name: 'Lighthouse', water: ['ocean-left'], oceanBehind: true, greenBunkers: 3, greenSize: 0.8 },
+      { par: 4, yards: 450, name: 'Riptide', water: ['chasm', 'ocean-right'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 5, yards: 570, name: 'Paradise', bend: -8, bendAt: 0.45, bend2: 6, bend2At: 0.78, water: ['ocean-left', 'pond-front'], greenBunkers: 2, fairwayBunkers: 2 },
+    ],
+  },
+  {
+    id: 'summit-peaks',
+    name: 'Summit Peaks',
+    location: 'Rocky Mountains, 8,000 ft',
+    blurb: 'Tee shots that hang in the thin mountain air over snowy peaks, pine forest and glacier lakes. The ball flies about 12% farther up here.',
+    style: 'alpine',
+    hdri: 'kloofendal_48d_partly_cloudy_puresky',
+    envIntensity: 0.8,
+    sunIntensity: 4.4,
+    exposure: 0.9,
+    trees: ['Tree_Pine', 'Tree_Pine', 'Tree_Pine', 'Tree_Birch'],
+    treeDensity: 1.0,
+    bushes: ['Bush_Green'],
+    bushDensity: 0.2,
+    fescue: false,
+    relief: 10,
+    dunes: 0,
+    firmness: 1.0,
+    windMin: 3,
+    windMax: 12,
+    altitude: 2440,
+    rock: 0x7a7570,
+    sea: { shallow: 0x3a8a8a, deep: 0x0a3446 },
+    colors: { fairway: 0x5f9e36, rough: 0x4c822e, green: 0x55a03c, deep: 0x557a36, sand: 0xe6dcc6, fescue: 0x8a9a52 },
+    holes: [
+      { par: 4, yards: 450, name: 'Base Camp', bend: 6, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: -8 },
+      { par: 5, yards: 560, name: 'Switchback', bend: -12, bendAt: 0.4, bend2: 12, bend2At: 0.75, greenBunkers: 2, fairwayBunkers: 2, elev: 10 },
+      { par: 3, yards: 215, name: "Eagle's Nest", greenBunkers: 3, elev: -24, greenSlope: 2 },
+      { par: 4, yards: 430, name: 'Glacier Lake', bend: -8, bendAt: 0.6, water: ['pond-left'], greenBunkers: 2, fairwayBunkers: 1, elev: -4 },
+      { par: 4, yards: 470, name: 'Avalanche', bend: 10, bendAt: 0.55, greenBunkers: 2, fairwayBunkers: 2, elev: -14 },
+      { par: 4, yards: 395, name: 'Timberline', bend: -10, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: 9, fwWidth: 0.9 },
+      { par: 3, yards: 175, name: 'Snowmelt', water: ['burn'], greenBunkers: 2, elev: -10, greenSlope: 2.4 },
+      { par: 4, yards: 485, name: 'The Ridge', bend: 6, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 2, elev: 6, fwWidth: 0.85 },
+      { par: 5, yards: 600, name: 'Summit', bend: -8, bendAt: 0.5, greenBunkers: 3, fairwayBunkers: 2, elev: -18 },
+      { par: 4, yards: 410, name: 'Pinecone', bend: 10, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: -6 },
+      { par: 3, yards: 240, name: 'Echo Canyon', water: ['pond-front'], greenBunkers: 2, elev: -28 },
+      { par: 5, yards: 545, name: 'Elk Meadow', bend: -8, bendAt: 0.45, bend2: 6, bend2At: 0.78, water: ['pond-right'], greenBunkers: 2, fairwayBunkers: 2, elev: 4 },
+      { par: 4, yards: 455, name: 'Rockslide', bend: -10, bendAt: 0.58, greenBunkers: 2, fairwayBunkers: 2, elev: 12 },
+      { par: 3, yards: 165, name: 'Alpine Lake', water: ['pond-front'], greenBunkers: 2, elev: -6, greenSize: 0.85 },
+      { par: 4, yards: 500, name: 'Black Diamond', bend: 8, bendAt: 0.55, greenBunkers: 2, fairwayBunkers: 2, elev: -20, fwWidth: 0.85 },
+      { par: 4, yards: 380, name: 'Ptarmigan', bend: -14, bendAt: 0.6, water: ['burn'], greenBunkers: 2, fairwayBunkers: 1, elev: 7 },
+      { par: 3, yards: 205, name: 'Chairlift', greenBunkers: 3, elev: -16, greenSlope: 2.2 },
+      { par: 5, yards: 620, name: 'Long Way Down', bend: 6, bendAt: 0.45, bend2: -8, bend2At: 0.78, water: ['pond-front'], greenBunkers: 2, fairwayBunkers: 2, elev: -26 },
+    ],
+  },
+  {
+    id: 'red-mesa',
+    name: 'Red Mesa',
+    location: 'Sonoran Desert, Arizona',
+    blurb: 'Emerald fairways cut through red rock and saguaro cactus. Carry the canyons, stay out of the desert, and enjoy firm, fast greens.',
+    style: 'desert',
+    hdri: 'qwantani_late_afternoon_puresky',
+    envIntensity: 0.75,
+    sunIntensity: 4.6,
+    exposure: 0.84,
+    trees: ['Tree_Saguaro', 'Tree_Saguaro', 'Tree_Saguaro', 'Tree_Saguaro', 'Tree_Saguaro', 'Tree_Cypress'],
+    treeDensity: 0.55,
+    bushes: ['Bush_Barrel', 'Bush_Barrel', 'Bush_Gorse'],
+    bushDensity: 0.6,
+    fescue: true,
+    relief: 7,
+    dunes: 0.8,
+    firmness: 1.3,
+    windMin: 4,
+    windMax: 14,
+    altitude: 760,
+    rock: 0x8c5642,
+    sea: { shallow: 0x3a8a6a, deep: 0x123a30 },
+    colors: { fairway: 0x74a83e, rough: 0x7c9640, green: 0x63a442, deep: 0xb89a6c, sand: 0xe8c9a0, fescue: 0xc49a66 },
+    holes: [
+      { par: 4, yards: 410, name: 'Coyote', bend: 8, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 5, yards: 555, name: 'Saguaro', bend: -10, bendAt: 0.45, bend2: 8, bend2At: 0.78, greenBunkers: 2, fairwayBunkers: 3, elev: 3 },
+      { par: 4, yards: 440, name: 'Arroyo', water: ['canyon'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 3, yards: 195, name: 'Mesa Top', greenBunkers: 3, elev: 6, greenSlope: 2.2 },
+      { par: 4, yards: 455, name: 'Rattlesnake', bend: -12, bendAt: 0.58, greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 4, yards: 385, name: 'Dry Wash', bend: 6, bendAt: 0.6, water: ['canyon'], greenBunkers: 2, elev: -4 },
+      { par: 3, yards: 160, name: 'Oasis', water: ['pond-front'], greenBunkers: 2, greenSize: 0.85 },
+      { par: 5, yards: 590, name: 'Sidewinder', bend: 10, bendAt: 0.42, bend2: -10, bend2At: 0.76, greenBunkers: 3, fairwayBunkers: 3 },
+      { par: 4, yards: 465, name: 'Red Rock', water: ['canyon'], greenBunkers: 2, fairwayBunkers: 1, elev: 5 },
+      { par: 4, yards: 425, name: 'Roadrunner', bend: -8, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 3, yards: 225, name: 'Hoodoo', water: ['canyon'], greenBunkers: 2, elev: -8 },
+      { par: 4, yards: 470, name: 'Tumbleweed', bend: 10, bendAt: 0.55, greenBunkers: 2, fairwayBunkers: 2, fwWidth: 0.9 },
+      { par: 5, yards: 540, name: 'Mirage', bend: -6, bendAt: 0.5, water: ['pond-left'], greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 4, yards: 360, name: 'Javelina', bend: -14, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 2, greenSize: 0.85 },
+      { par: 4, yards: 445, name: 'Slot Canyon', water: ['canyon'], greenBunkers: 2, fairwayBunkers: 1, elev: -6 },
+      { par: 3, yards: 175, name: 'Sundial', greenBunkers: 3, elev: -10, greenSlope: 2.4 },
+      { par: 4, yards: 480, name: 'Scorpion', bend: 8, bendAt: 0.6, water: ['canyon'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 5, yards: 575, name: 'Sundown', bend: -6, bendAt: 0.5, water: ['pond-front'], greenBunkers: 2, fairwayBunkers: 2 },
+    ],
+  },
+  {
+    id: 'thunder-bluffs',
+    name: 'Thunder Bluffs',
+    location: 'Wild Atlantic coast',
+    blurb: 'Clifftop golf high above crashing surf. Gusty sea wind, gorse on the headlands and heroic carries over ocean inlets.',
+    style: 'coastal',
     hdri: 'kloofendal_48d_partly_cloudy_puresky',
     envIntensity: 0.75,
     sunIntensity: 4.2,
     exposure: 0.9,
     trees: ['Tree_Pine'],
-    treeDensity: 0.08,
-    bushes: ['Bush_Green', 'Bush_Gorse'],
-    bushDensity: 0.35,
+    treeDensity: 0.12,
+    bushes: ['Bush_Gorse', 'Bush_Gorse', 'Bush_Green'],
+    bushDensity: 0.9,
     fescue: true,
-    relief: 5,
-    dunes: 3.2,
+    relief: 6,
+    dunes: 1.2,
     firmness: 1.15,
-    windMin: 6,
-    windMax: 16,
-    colors: { fairway: 0x7ea044, rough: 0x66863a, green: 0x6a9e44, deep: 0x6f7a3e, sand: 0xd9c9a3, fescue: 0xa69a5c },
+    windMin: 8,
+    windMax: 19,
+    rock: 0x605850,
+    colors: { fairway: 0x7aa244, rough: 0x678a3c, green: 0x6ea446, deep: 0x6c7a40, sand: 0xd2c29e, fescue: 0xa09458 },
     holes: [
-      { par: 4, yards: 399, name: 'Westward Ho', bend: 12, bendAt: 0.62, greenBunkers: 3, fairwayBunkers: 2, elev: 2 },
-      { par: 3, yards: 252, name: 'Plateau', greenBunkers: 4, elev: 3, greenSlope: 2.2 },
-      { par: 4, yards: 500, name: 'Peconic', bend: -6, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 3, elev: -2 },
-      { par: 4, yards: 475, name: 'Pump House', bend: -14, bendAt: 0.58, greenBunkers: 3, fairwayBunkers: 2 },
-      { par: 5, yards: 589, name: 'Montauk', bend: 8, bendAt: 0.45, bend2: -10, bend2At: 0.78, greenBunkers: 3, fairwayBunkers: 4, elev: 1 },
-      { par: 4, yards: 491, name: 'Pond', bend: 14, bendAt: 0.6, water: ['pond-front'], greenBunkers: 2, fairwayBunkers: 2 },
-      { par: 3, yards: 189, name: 'Redan', greenBunkers: 4, greenSlope: 3.2, elev: 1.5 },
-      { par: 4, yards: 439, name: 'Lowlands', bend: -8, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 2, elev: -3 },
-      { par: 4, yards: 485, name: 'Ben Nevis', bend: 6, bendAt: 0.55, greenBunkers: 4, fairwayBunkers: 2, elev: 9 },
-      // back nine
-      { par: 4, yards: 415, name: 'Eastward Ho', bend: -6, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 2, elev: 4 },
-      { par: 3, yards: 159, name: 'Hill Head', greenBunkers: 4, elev: 4, greenSlope: 2.8, greenSize: 0.85 },
-      { par: 4, yards: 469, name: 'Tuckahoe', bend: 8, bendAt: 0.58, greenBunkers: 3, fairwayBunkers: 3, elev: -1 },
-      { par: 4, yards: 374, name: 'Road Side', bend: -10, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 2 },
-      { par: 4, yards: 519, name: "Thom's Elbow", bend: 12, bendAt: 0.55, greenBunkers: 2, fairwayBunkers: 3, elev: 3 },
-      { par: 4, yards: 409, name: 'Sebonac', bend: -8, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 2, elev: -2 },
-      { par: 5, yards: 616, name: 'Shinnecock', bend: 6, bendAt: 0.42, bend2: -8, bend2At: 0.76, greenBunkers: 4, fairwayBunkers: 5, elev: 2 },
-      { par: 3, yards: 180, name: 'Eden', water: ['pond-left'], greenBunkers: 3, greenSlope: 2.2 },
-      { par: 4, yards: 485, name: 'Home', bend: 6, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 2, elev: 5 },
+      { par: 4, yards: 405, name: 'Gannet', bend: 6, bendAt: 0.6, water: ['ocean-right'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 4, yards: 440, name: 'Storm Point', bend: -6, bendAt: 0.55, water: ['ocean-left'], greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 3, yards: 210, name: 'The Leap', water: ['chasm', 'ocean-right'], greenBunkers: 2, greenSize: 0.85 },
+      { par: 5, yards: 565, name: 'Kelp Bed', bend: 8, bendAt: 0.45, bend2: -6, bend2At: 0.78, water: ['ocean-right'], greenBunkers: 3, fairwayBunkers: 2 },
+      { par: 4, yards: 425, name: 'Gorse Hill', bend: -10, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 2, elev: 6 },
+      { par: 4, yards: 375, name: 'Blowhole', water: ['chasm', 'ocean-left'], greenBunkers: 2, greenSize: 0.85 },
+      { par: 3, yards: 160, name: 'Puffin', water: ['ocean-right'], oceanBehind: true, greenBunkers: 3, greenSize: 0.75, elev: -4 },
+      { par: 4, yards: 470, name: 'Breakwater', bend: -6, bendAt: 0.55, water: ['ocean-left'], greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 5, yards: 545, name: 'Lookout', bend: 6, bendAt: 0.5, water: ['ocean-right'], greenBunkers: 2, fairwayBunkers: 2, elev: 8 },
+      { par: 4, yards: 420, name: 'Sea Stack', water: ['chasm', 'ocean-left'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 3, yards: 225, name: 'Spray', water: ['ocean-right'], oceanBehind: true, greenBunkers: 2, greenSize: 0.85 },
+      { par: 4, yards: 455, name: 'Driftnet', bend: 8, bendAt: 0.58, greenBunkers: 3, fairwayBunkers: 2, elev: -3 },
+      { par: 4, yards: 395, name: 'Tidal Race', bend: -10, bendAt: 0.6, water: ['ocean-left'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 5, yards: 590, name: 'Thunderhead', bend: 6, bendAt: 0.45, bend2: -6, bend2At: 0.78, water: ['ocean-right'], greenBunkers: 3, fairwayBunkers: 3 },
+      { par: 4, yards: 435, name: 'Cormorant', water: ['chasm', 'ocean-right'], greenBunkers: 2, elev: -6 },
+      { par: 3, yards: 185, name: "Widow's Walk", water: ['ocean-left'], oceanBehind: true, greenBunkers: 2, greenSize: 0.7, greenSlope: 2.2 },
+      { par: 4, yards: 490, name: 'Gale', bend: 4, bendAt: 0.55, water: ['ocean-right'], greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 5, yards: 560, name: 'Lighthouse', bend: -8, bendAt: 0.45, bend2: 8, bend2At: 0.78, water: ['ocean-left'], greenBunkers: 3, fairwayBunkers: 2, elev: 4 },
     ],
   },
   {
-    id: 'wykagyl',
-    name: 'Wykagyl Country Club',
-    location: 'New Rochelle, New York',
-    blurb: 'Classic tree-lined Westchester parkland. Rolling terrain, lush fairways and tough elevated greens.',
+    id: 'maple-hollow',
+    name: 'Maple Hollow',
+    location: 'Green Mountains, Vermont',
+    blurb: 'Autumn in New England: fairways framed by blazing red, orange and gold maples, a winding creek and a covered-bridge millpond.',
     style: 'parkland',
     hdri: 'kloppenheim_05_puresky',
     envIntensity: 0.75,
     sunIntensity: 4.0,
     exposure: 0.95,
-    trees: ['Tree_Oak', 'Tree_Oak', 'Tree_Birch', 'Tree_Pine'],
+    trees: ['Tree_Oak', 'Tree_Oak', 'Tree_Oak', 'Tree_Birch', 'Tree_Pine'],
     treeDensity: 1.0,
     bushes: ['Bush_Green'],
     bushDensity: 0.15,
     fescue: false,
     relief: 9,
     dunes: 0,
-    firmness: 0.9,
+    firmness: 0.95,
     windMin: 0,
-    windMax: 8,
-    colors: { fairway: 0x5e9a35, rough: 0x4a7a2a, green: 0x4f9a3a, deep: 0x40682a, sand: 0xe0d5bc, fescue: 0x6a8a3a },
+    windMax: 9,
+    foliage: [0xff8a3a, 0xff4a2a, 0xffc24a],
+    colors: { fairway: 0x6a9a38, rough: 0x58802e, green: 0x52983a, deep: 0x5a6e2e, sand: 0xe0d5bc, fescue: 0x8a8a44 },
     holes: [
-      { par: 5, yards: 537, bend: -8, bendAt: 0.5, greenBunkers: 2, fairwayBunkers: 2, elev: -4 },
-      { par: 4, yards: 396, bend: 10, bendAt: 0.62, greenBunkers: 2, fairwayBunkers: 1, elev: 4 },
-      { par: 4, yards: 456, bend: -6, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 1, elev: -2 },
-      { par: 3, yards: 144, water: ['pond-front'], greenBunkers: 2, elev: -3 },
-      { par: 4, yards: 397, bend: 14, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: 5 },
-      { par: 5, yards: 525, bend: 9, bendAt: 0.42, bend2: -9, bend2At: 0.75, water: ['pond-left'], greenBunkers: 2, fairwayBunkers: 2 },
-      { par: 3, yards: 171, greenBunkers: 3, elev: 2, greenSlope: 2.6 },
-      { par: 4, yards: 446, bend: -12, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2, elev: -1 },
-      { par: 5, yards: 494, bend: 10, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 1, elev: 6 },
-      // back nine (approximate yardages)
-      { par: 4, yards: 410, bend: -9, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: -3 },
-      { par: 4, yards: 385, bend: 12, bendAt: 0.58, greenBunkers: 2, fairwayBunkers: 1, elev: 4 },
-      { par: 3, yards: 175, water: ['pond-front'], greenBunkers: 2, elev: -2 },
-      { par: 5, yards: 520, bend: -7, bendAt: 0.45, bend2: 8, bend2At: 0.75, greenBunkers: 3, fairwayBunkers: 2, elev: 3 },
-      { par: 4, yards: 430, bend: 6, bendAt: 0.6, water: ['pond-right'], greenBunkers: 2, fairwayBunkers: 1 },
-      { par: 4, yards: 395, bend: -14, bendAt: 0.58, greenBunkers: 2, fairwayBunkers: 2, elev: 5 },
-      { par: 3, yards: 205, greenBunkers: 3, elev: -4, greenSlope: 2.4 },
-      { par: 4, yards: 440, bend: 10, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2, elev: -1 },
-      { par: 4, yards: 420, bend: -6, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 1, elev: 7 },
-    ],
-  },
-  {
-    id: 'pebble',
-    name: 'Pebble Beach Golf Links',
-    location: 'Pebble Beach, California',
-    blurb: 'Clifftop holes along Carmel Bay. Cypress trees, tiny greens and the Pacific waiting on the right.',
-    style: 'coastal',
-    hdri: 'qwantani_late_afternoon_puresky',
-    envIntensity: 0.75,
-    sunIntensity: 4.2,
-    exposure: 0.85,
-    trees: ['Tree_Cypress', 'Tree_Cypress', 'Tree_Pine'],
-    treeDensity: 0.45,
-    bushes: ['Bush_Green'],
-    bushDensity: 0.2,
-    fescue: false,
-    relief: 6,
-    dunes: 0.5,
-    firmness: 1.0,
-    windMin: 4,
-    windMax: 14,
-    colors: { fairway: 0x6a9c3a, rough: 0x55803a, green: 0x5f9a40, deep: 0x5a7232, sand: 0xdccfb2, fescue: 0x9a9a5a },
-    holes: [
-      { par: 4, yards: 380, bend: 16, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: 2, greenSize: 0.85 },
-      { par: 5, yards: 511, bend: -5, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2, water: ['burn'], greenSize: 0.85 },
-      { par: 4, yards: 404, bend: -18, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 1, elev: -3, greenSize: 0.8 },
-      { par: 4, yards: 331, water: ['ocean-right'], greenBunkers: 3, fairwayBunkers: 2, greenSize: 0.75, greenSlope: 2.4 },
-      { par: 3, yards: 195, water: ['ocean-right'], greenBunkers: 2, greenSize: 0.8 },
-      { par: 5, yards: 523, bend: 6, bendAt: 0.55, water: ['ocean-right'], greenBunkers: 2, fairwayBunkers: 1, elev: 10, greenSize: 0.85 },
-      { par: 3, yards: 109, water: ['ocean-right'], oceanBehind: true, greenBunkers: 4, elev: -7, greenSize: 0.65 },
-      { par: 4, yards: 428, bend: 8, bendAt: 0.62, water: ['chasm', 'ocean-right'], greenBunkers: 2, greenSize: 0.8, elev: -2 },
-      { par: 4, yards: 505, bend: -4, bendAt: 0.5, water: ['ocean-right'], greenBunkers: 2, fairwayBunkers: 1, greenSize: 0.8, elev: -1 },
-      // back nine
-      { par: 4, yards: 495, bend: -5, bendAt: 0.55, water: ['ocean-right'], greenBunkers: 2, fairwayBunkers: 2, greenSize: 0.8, elev: -2 },
-      { par: 4, yards: 390, bend: 6, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: 5, greenSize: 0.8 },
-      { par: 3, yards: 202, greenBunkers: 3, greenSize: 0.7, greenSlope: 2.2 },
-      { par: 4, yards: 445, bend: -6, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2, elev: 4, greenSize: 0.8, greenSlope: 3 },
-      { par: 5, yards: 580, bend: 14, bendAt: 0.5, bend2: 6, bend2At: 0.8, greenBunkers: 3, fairwayBunkers: 2, elev: 3, greenSize: 0.7 },
-      { par: 4, yards: 397, bend: 4, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 1, elev: -3, greenSize: 0.8 },
-      { par: 4, yards: 403, bend: -8, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 2, elev: -4, greenSize: 0.8 },
-      { par: 3, yards: 208, water: ['ocean-left'], oceanBehind: true, greenBunkers: 3, greenSize: 0.75, greenSlope: 2 },
-      { par: 5, yards: 543, bend: -10, bendAt: 0.55, water: ['ocean-left'], greenBunkers: 3, fairwayBunkers: 2, greenSize: 0.85 },
-    ],
-  },
-  {
-    id: 'standrews',
-    name: 'St Andrews Old Course',
-    location: 'St Andrews, Scotland',
-    blurb: 'The Home of Golf. Vast shared fairways, hidden pot bunkers, gorse and huge double greens in the sea wind.',
-    style: 'links',
-    hdri: 'kloofendal_28d_misty_puresky',
-    envIntensity: 0.9,
-    sunIntensity: 3.2,
-    exposure: 1.0,
-    trees: [],
-    treeDensity: 0,
-    bushes: ['Bush_Gorse', 'Bush_Gorse', 'Bush_Green'],
-    bushDensity: 1.0,
-    fescue: true,
-    relief: 3,
-    dunes: 2.0,
-    firmness: 1.25,
-    windMin: 8,
-    windMax: 20,
-    colors: { fairway: 0x86a04a, rough: 0x718842, green: 0x74a048, deep: 0x6c7440, sand: 0xcfbd96, fescue: 0x9c9258 },
-    holes: [
-      { par: 4, yards: 376, name: 'Burn', water: ['burn'], greenBunkers: 0, fairwayBunkers: 1, pot: true, fwWidth: 1.8, greenSize: 1.2 },
-      { par: 4, yards: 453, name: 'Dyke', bend: 6, bendAt: 0.55, greenBunkers: 2, fairwayBunkers: 3, pot: true, fwWidth: 1.4, greenSize: 1.4 },
-      { par: 4, yards: 397, name: 'Cartgate', bend: 5, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 3, pot: true, fwWidth: 1.4, greenSize: 1.3 },
-      { par: 4, yards: 480, name: 'Ginger Beer', bend: -6, bendAt: 0.5, greenBunkers: 2, fairwayBunkers: 4, pot: true, fwWidth: 1.3, greenSize: 1.3 },
-      { par: 5, yards: 568, name: "Hole O'Cross", bend: 6, bendAt: 0.45, bend2: -5, bend2At: 0.75, greenBunkers: 2, fairwayBunkers: 5, pot: true, fwWidth: 1.4, greenSize: 1.6 },
-      { par: 4, yards: 418, name: 'Heathery', bend: -5, bendAt: 0.55, greenBunkers: 1, fairwayBunkers: 3, pot: true, fwWidth: 1.3, greenSize: 1.3 },
-      { par: 4, yards: 372, name: 'High', bend: 14, bendAt: 0.55, greenBunkers: 2, fairwayBunkers: 2, pot: true, fwWidth: 1.2, greenSize: 1.4 },
-      { par: 3, yards: 175, name: 'Short', greenBunkers: 2, pot: true, greenSize: 1.2, greenSlope: 2 },
-      { par: 4, yards: 352, name: 'End', greenBunkers: 1, fairwayBunkers: 3, pot: true, fwWidth: 1.6, greenSize: 1.2 },
-      // back nine
-      { par: 4, yards: 386, name: 'Bobby Jones', bend: -4, bendAt: 0.55, greenBunkers: 1, fairwayBunkers: 3, pot: true, fwWidth: 1.5, greenSize: 1.2 },
-      { par: 3, yards: 174, name: 'High (In)', greenBunkers: 2, pot: true, greenSize: 1.3, greenSlope: 3.2 },
-      { par: 4, yards: 348, name: 'Heathery (In)', bend: 4, bendAt: 0.55, greenBunkers: 1, fairwayBunkers: 5, pot: true, fwWidth: 1.5, greenSize: 1.2 },
-      { par: 4, yards: 465, name: "Hole O'Cross (In)", bend: -6, bendAt: 0.5, greenBunkers: 2, fairwayBunkers: 4, pot: true, fwWidth: 1.4, greenSize: 1.6 },
-      { par: 5, yards: 618, name: 'Long', bend: 5, bendAt: 0.45, bend2: -6, bend2At: 0.75, greenBunkers: 2, fairwayBunkers: 6, pot: true, fwWidth: 1.4, greenSize: 1.4 },
-      { par: 4, yards: 455, name: 'Cartgate (In)', bend: -4, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 3, pot: true, fwWidth: 1.4, greenSize: 1.3 },
-      { par: 4, yards: 423, name: 'Corner of the Dyke', bend: 6, bendAt: 0.55, greenBunkers: 2, fairwayBunkers: 3, pot: true, fwWidth: 1.3, greenSize: 1.3 },
-      { par: 4, yards: 495, name: 'Road', bend: 14, bendAt: 0.55, greenBunkers: 1, fairwayBunkers: 2, pot: true, fwWidth: 1.2, greenSize: 1.0, greenSlope: 2.4 },
-      { par: 4, yards: 357, name: 'Tom Morris', water: ['burn'], greenBunkers: 0, fairwayBunkers: 0, fwWidth: 1.9, greenSize: 1.3, greenSlope: 2.6 },
+      { par: 4, yards: 400, name: 'Sugar Maple', bend: -8, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: 2 },
+      { par: 4, yards: 430, name: 'Covered Bridge', bend: 6, bendAt: 0.6, water: ['burn'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 3, yards: 170, name: 'Cider Mill', water: ['pond-front'], greenBunkers: 2, elev: -3 },
+      { par: 5, yards: 535, name: 'Harvest', bend: 8, bendAt: 0.42, bend2: -8, bend2At: 0.75, greenBunkers: 2, fairwayBunkers: 2, elev: 4 },
+      { par: 4, yards: 455, name: 'Red Oak', bend: -12, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2, elev: 5 },
+      { par: 4, yards: 385, name: 'Millpond', bend: 6, bendAt: 0.6, water: ['pond-right'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 3, yards: 195, name: 'Hayride', greenBunkers: 3, elev: -6, greenSlope: 2.6 },
+      { par: 4, yards: 420, name: 'Pumpkin Patch', bend: 10, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2, elev: -2 },
+      { par: 5, yards: 560, name: 'Golden Mile', bend: -6, bendAt: 0.5, greenBunkers: 3, fairwayBunkers: 2, elev: 6 },
+      { par: 4, yards: 410, name: 'Stone Wall', bend: 8, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: -3 },
+      { par: 4, yards: 445, name: 'Birch Run', bend: -6, bendAt: 0.58, water: ['burn'], greenBunkers: 2, fairwayBunkers: 1, elev: -5 },
+      { par: 3, yards: 150, name: 'Acorn', water: ['pond-front'], greenBunkers: 2, greenSize: 0.8 },
+      { par: 5, yards: 525, name: 'Woodsmoke', bend: -10, bendAt: 0.45, bend2: 6, bend2At: 0.75, water: ['pond-left'], greenBunkers: 2, fairwayBunkers: 2 },
+      { par: 4, yards: 395, name: 'The Hollow', bend: 6, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: -8 },
+      { par: 4, yards: 465, name: 'Lantern', bend: 12, bendAt: 0.58, greenBunkers: 2, fairwayBunkers: 2, elev: 3 },
+      { par: 3, yards: 210, name: 'Foliage', greenBunkers: 3, elev: -10, greenSlope: 2.4 },
+      { par: 4, yards: 440, name: 'Bramble', bend: -8, bendAt: 0.6, water: ['pond-left'], greenBunkers: 2, fairwayBunkers: 1, elev: 2 },
+      { par: 5, yards: 545, name: 'Homestead', bend: 6, bendAt: 0.5, water: ['pond-front'], greenBunkers: 2, fairwayBunkers: 2, elev: 6 },
     ],
   },
 ];

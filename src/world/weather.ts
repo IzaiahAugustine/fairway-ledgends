@@ -3,7 +3,7 @@
 // camera and plays a rain bed.
 import * as THREE from 'three';
 import type { Rng } from '../core/rng';
-import type { CourseDef } from '../data/courses';
+import { traits, type CourseDef } from '../data/courses';
 
 export type WeatherKind = 'fair' | 'breezy' | 'overcast' | 'rain';
 
@@ -29,15 +29,11 @@ const KINDS: Record<WeatherKind, Omit<Weather, 'kind'>> = {
   rain: { label: 'Rain', hdri: 'kloofendal_28d_misty_puresky', sunMul: 0.3, envMul: 1.05, windMul: 1.25, hazeMul: 2.4, cloudCover: 0.85, wet: 1, exposureMul: 0.92 },
 };
 
-/** Weighted pick for a course: links courses see more grey days, parkland more fair ones. */
+/** Weighted pick for a course: sea courses see more wind and grey days, the desert almost never rains. */
 export function pickWeather(course: CourseDef, rng: Rng, mode: 'random' | 'fair', force?: WeatherKind): Weather {
   if (force) return { kind: force, ...KINDS[force] };
   if (mode === 'fair') return { kind: 'fair', ...KINDS.fair };
-  const w: Record<WeatherKind, number> =
-    course.id === 'standrews' ? { fair: 3, breezy: 3, overcast: 2, rain: 2 }
-      : course.style === 'links' ? { fair: 4, breezy: 3, overcast: 2, rain: 1 }
-        : course.style === 'coastal' ? { fair: 5, breezy: 3, overcast: 1, rain: 1 }
-          : { fair: 6, breezy: 2, overcast: 1, rain: 1 };
+  const w: Record<WeatherKind, number> = { ...traits(course).weather };
   const total = Object.values(w).reduce((a, b) => a + b, 0);
   let r = rng.next() * total;
   for (const k of Object.keys(w) as WeatherKind[]) {

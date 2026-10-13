@@ -38,7 +38,12 @@ export interface SimEnv {
   flightOnly?: boolean;
   /** Rain: 0 dry .. 1 soaked. Softer landings and slower roll, greens included. */
   wet?: number;
+  /** Air density relative to sea level (thin mountain air < 1: less drag and lift). */
+  air?: number;
 }
+
+/** Air density relative to sea level at an altitude in metres (standard atmosphere). */
+export const airDensityAt = (altitude: number) => Math.pow(1 - 2.25577e-5 * Math.max(0, altitude), 4.2559);
 
 export interface Launch {
   x: number;
@@ -84,17 +89,17 @@ export interface SimResult {
   closest: number;
 }
 
-const RESTITUTION: Record<number, number> = {
-  [Surf.Fairway]: 0.32, [Surf.Tee]: 0.32, [Surf.Fringe]: 0.28, [Surf.Green]: 0.24,
-  [Surf.Rough]: 0.18, [Surf.Deep]: 0.1, [Surf.Bunker]: 0.04, [Surf.OB]: 0.18, [Surf.Water]: 0,
-};
-const FRICTION: Record<number, number> = {
-  [Surf.Fairway]: 0.42, [Surf.Tee]: 0.42, [Surf.Fringe]: 0.45, [Surf.Green]: 0.42,
-  [Surf.Rough]: 0.6, [Surf.Deep]: 0.8, [Surf.Bunker]: 0.95, [Surf.OB]: 0.6, [Surf.Water]: 1,
-};
-const SPIN_BITE: Record<number, number> = {
-  [Surf.Fairway]: 0.5, [Surf.Tee]: 0.5, [Surf.Fringe]: 0.75, [Surf.Green]: 1.0,
-  [Surf.Rough]: 0.12, [Surf.Deep]: 0.05, [Surf.Bunker]: 0.1, [Surf.OB]: 0.1, [Surf.Water]: 0,
+/**
+ * How each surface takes a landing ball: crater = how deep it dents (Penner's green = 1), bounce
+ * scales the restitution, mu is the sliding friction. Firm fairways kick the ball on; rough and
+ * sand swallow it.
+ */
+const TURF: Record<number, { crater: number; bounce: number; mu: number }> = {
+  [Surf.Green]: { crater: 1, bounce: 1, mu: 0.43 }, [Surf.Fringe]: { crater: 0.95, bounce: 1, mu: 0.45 },
+  [Surf.Fairway]: { crater: 0.72, bounce: 1.2, mu: 0.4 }, [Surf.Tee]: { crater: 0.72, bounce: 1.2, mu: 0.4 },
+  [Surf.Rough]: { crater: 1.2, bounce: 0.85, mu: 0.5 }, [Surf.OB]: { crater: 1.2, bounce: 0.85, mu: 0.5 },
+  [Surf.Deep]: { crater: 2, bounce: 0.45, mu: 0.7 }, [Surf.Bunker]: { crater: 2.8, bounce: 0.2, mu: 0.9 },
+  [Surf.Water]: { crater: 3, bounce: 0, mu: 1 },
 };
 /** Rolling resistance: deceleration = a + k * speed (m/s^2). Green a/k give ~stimp 11. */
 export const ROLL: Record<number, { a: number; k: number }> = {
@@ -102,6 +107,9 @@ export const ROLL: Record<number, { a: number; k: number }> = {
   [Surf.Green]: { a: 0.47, k: 0.035 }, [Surf.Rough]: { a: 3.2, k: 0.9 }, [Surf.Deep]: { a: 6.5, k: 1.6 },
   [Surf.Bunker]: { a: 11, k: 2.5 }, [Surf.OB]: { a: 3.2, k: 0.9 }, [Surf.Water]: { a: 20, k: 2 },
 };
+
+/** Extra deceleration per m/s above 2 m/s while a landed ball skids into its roll. */
+const SKID = 1.0;
 
 /** Flat-ground roll distance for an initial speed. */
 export function rollDistance(v0: number, a: number, k: number): number {
@@ -145,6 +153,7 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
   const events: SimEvent[] = [];
   const firm = env.firmness;
   const wet = env.wet ?? 0;
+  const air = env.air ?? 1;
   let x = l.x, y = l.y, z = l.z;
   const la = (l.launchDeg * Math.PI) / 180;
   let vx = l.speed * Math.cos(la) * l.dirX;
@@ -189,16 +198,16 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
       const rvx = vx - env.wind.x, rvy = vy, rvz = vz - env.wind.z;
       const sp = Math.hypot(rvx, rvy, rvz) || 1e-6;
       const S = (BALL_R * spin) / sp;
-      const cd = 0.215 + 0.2 * S;
-      const cl = clamp(1.25 * S, 0, 0.34);
+      const cd = 0.25 + 0.25 * S;
+      const cl = clamp(0.55 * Math.pow(S, 0.45), 0, 0.4);
       // lift direction = w x v
       let lx = wy * rvz - wz * rvy;
       let ly = wz * rvx - wx * rvz;
       let lz = wx * rvy - wy * rvx;
       const ll = Math.hypot(lx, ly, lz) || 1;
       lx /= ll; ly /= ll; lz /= ll;
-      const kd = K_AERO * cd * sp;
-      const kl = K_AERO * cl * sp * sp;
+      const kd = K_AERO * air * cd * sp;
+      const kl = K_AERO * air * cl * sp * sp;
       const accx = -kd * rvx + kl * lx;
       const accy = -kd * rvy + kl * ly - G;
       const accz = -kd * rvz + kl * lz;
@@ -300,20 +309,51 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
           let tx = vx - vn * nx, ty = vy - vn * ny, tz = vz - vn * nz;
           const vt = Math.hypot(tx, ty, tz) || 1e-6;
           tx /= vt; ty /= vt; tz /= vt;
-          const e = clamp((RESTITUTION[s] ?? 0.2) * (0.8 + 0.2 * firm) * (1 - 0.25 * clamp(-vn / 30, 0, 1)) * (1 - 0.3 * wet), 0, 0.6);
-          const mu = (FRICTION[s] ?? 0.4) / (0.85 + 0.15 * firm);
-          const rpm = (spin * 60) / (2 * Math.PI);
-          const bite = (SPIN_BITE[s] ?? 0.1) * clamp(rpm / 9000, 0, 1.4) ** 2 * 0.55;
-          let newVt = vt - (mu + bite) * (1 + e) * -vn;
-          // high-spin wedges can check up and spin back on greens
-          const maxBack = s === Surf.Green || s === Surf.Fringe ? clamp((rpm - 7500) / 2500, 0, 1) * 2.4 : 0;
-          if (newVt < -maxBack) newVt = -maxBack;
-          if (newVt < 0 && maxBack === 0) newVt = 0;
-          const nvn = -e * vn;
-          vx = tx * newVt + nx * nvn;
-          vy = ty * newVt + ny * nvn;
-          vz = tz * newVt + nz * nvn;
-          spin *= 0.4;
+          // Turf impact after Penner ("The run of a golf ball", 2002): the ball dents the turf, so it
+          // effectively strikes a plane tilted back toward it by the crater angle, which grows with
+          // impact speed and steepness. Relative to that plane it rebounds with a speed-dependent
+          // restitution and friction either stops the contact point skidding (the ball leaves rolling)
+          // or acts the whole time. Backspin is what makes irons check and wedges zip back.
+          const imp = Math.hypot(vx, vy, vz);
+          const inc = Math.atan2(-vn, vt);
+          const tf = TURF[s] ?? TURF[Surf.Rough];
+          const soft = (tf.crater * (1 + 0.4 * wet)) / firm;
+          const thc = Math.min(1.1, soft * 0.2688 * (imp / 18.6) * (inc / 0.775));
+          const cc = Math.cos(thc), sc = Math.sin(thc);
+          // tilted plane: normal leans back against the travel, tangent tips upward
+          const pnx = nx * cc - tx * sc, pny = ny * cc - ty * sc, pnz = nz * cc - tz * sc;
+          const ptx = tx * cc + nx * sc, pty = ty * cc + ny * sc, ptz = tz * cc + nz * sc;
+          const ux = vx * ptx + vy * pty + vz * ptz;
+          const uy = -(vx * pnx + vy * pny + vz * pnz);
+          const un = Math.min(uy, 21);
+          const e = clamp((0.51 - 0.0375 * un + 0.000903 * un * un) * tf.bounce * (0.8 + 0.2 * firm) * (1 - 0.3 * wet), 0.02, 0.6);
+          // backspin about the axis to the right of travel
+          const rX = ty * nz - tz * ny, rY = tz * nx - tx * nz, rZ = tx * ny - ty * nx;
+          const om = spin * (wx * rX + wy * rY + wz * rZ);
+          const mu = tf.mu;
+          let ux2: number, om2: number;
+          if (mu < (2 * (ux + BALL_R * om)) / (7 * (1 + e) * uy)) {
+            ux2 = ux - mu * (1 + e) * uy;
+            om2 = om - ((5 * mu) / (2 * BALL_R)) * (1 + e) * uy;
+          } else {
+            ux2 = (5 / 7) * ux - (2 / 7) * BALL_R * om;
+            om2 = -ux2 / BALL_R;
+          }
+          const uy2 = e * uy;
+          vx = ptx * ux2 + pnx * uy2;
+          vy = pty * ux2 + pny * uy2;
+          vz = ptz * ux2 + pnz * uy2;
+          // how far a ball can zip back: only real spinners on soft, receiving turf
+          const rpm = (Math.abs(om) * 60) / (2 * Math.PI);
+          const back = -(vx * tx + vy * ty + vz * tz);
+          const maxBack = s === Surf.Green || s === Surf.Fringe ? clamp((rpm - 7000) / 3500, 0, 1) * 1.6 : 0;
+          if (back > maxBack) {
+            const k = back - maxBack;
+            vx += tx * k; vy += ty * k; vz += tz * k;
+          }
+          wx = rX * Math.sign(om2 || 1); wy = rY * Math.sign(om2 || 1); wz = rZ * Math.sign(om2 || 1);
+          spin = Math.abs(om2);
+          const nvn = vx * nx + vy * ny + vz * nz;
           events.push({ t, type: 'bounce', x, y, z, surf: s, speed: -vn });
           if (nvn < 0.9 || s === Surf.Bunker) {
             mode = 'roll';
@@ -340,7 +380,10 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
       let accz = -slopeK * g.z;
       const sp = Math.hypot(vx, vz);
       const rr = ROLL[s] ?? ROLL[Surf.Rough];
-      const decel = ((rr.a + rr.k * sp) / (s === Surf.Green ? 1 : firm)) * (1 + (s === Surf.Green ? 0.22 : 0.3) * wet);
+      // a ball that has just landed is still hopping and skidding through the grass before it
+      // settles into a true roll, which takes extra pace off fast run-outs (putts start rolling)
+      const skid = l.putt ? 0 : SKID * Math.max(0, sp - 2);
+      const decel = ((rr.a + rr.k * sp + skid) / (s === Surf.Green ? 1 : firm)) * (1 + (s === Surf.Green ? 0.22 : 0.3) * wet);
       const slopeA = Math.hypot(accx, accz);
       if (sp < 0.02) {
         if (slopeA < decel * 1.05) {

@@ -9,6 +9,8 @@ export interface TreePart {
   matrix: THREE.Matrix4;
   /** Shadow-pass material with the same wind sway; assign to InstancedMesh.customDepthMaterial. */
   depthMaterial?: THREE.Material;
+  /** Foliage (takes autumn tints). */
+  leaf?: boolean;
 }
 export interface TreeTemplate {
   parts: TreePart[];
@@ -1043,7 +1045,7 @@ export async function buildTreeTemplates(wind: WindUniforms, opts?: { quality?: 
         const t = buildTree(kind, v, quality);
         const parts: TreePart[] = [];
         if (t.bark.index!.count > 0) parts.push({ geometry: t.bark, material: barkMat, matrix: new THREE.Matrix4(), depthMaterial: barkDepth });
-        parts.push({ geometry: t.leaves, material: leafMat, matrix: new THREE.Matrix4(), depthMaterial: leafDepth });
+        parts.push({ geometry: t.leaves, material: leafMat, matrix: new THREE.Matrix4(), depthMaterial: leafDepth, leaf: true });
         return { parts, triangles: t.triangles, ...t.tpl };
       });
       out.set(name, list);

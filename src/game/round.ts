@@ -5,8 +5,8 @@ import { sfx } from '../audio/sfx';
 import { Rng, clamp, toYards } from '../core/rng';
 import { playerLevel, save, type Difficulty } from '../core/save';
 import { CLUBS, PUTT_SHOT, SHOT_TYPES, TIERS, animFor, type ClubDef, type ShotTypeDef } from '../data/clubs';
-import type { CourseDef } from '../data/courses';
-import { BALL_R, TreeIndex, sampleAt, simulateShot, type SimEnv, type SimResult } from '../physics/ballPhysics';
+import { traits, type CourseDef } from '../data/courses';
+import { BALL_R, TreeIndex, airDensityAt, sampleAt, simulateShot, type SimEnv, type SimResult } from '../physics/ballPhysics';
 import { Hud } from '../ui/hud';
 import { SkyEnvironment } from '../world/environment';
 import { HoleField, SURF_NAME, Surf } from '../world/holeGen';
@@ -25,7 +25,7 @@ import { swingStyleById, type SwingStyleId } from '../data/swingStyles';
 import { CameraDirector } from './cameraDirector';
 import { Golfer } from './golfer';
 import { MatchState, WIN_XP, bonusXp, scoreName, xpMul, type Format, type MatchOptions, type Side } from './match';
-import { PERFECT_SWING, SPIN_MODS, errorScale, fullCarry, launchFor, lieMods, type ShotSetup, type SwingResult } from './shotModel';
+import { PERFECT_SWING, SPIN_MODS, altitudeCarryGain, errorScale, fullCarry, launchFor, lieMods, setAltitude, type ShotSetup, type SwingResult } from './shotModel';
 import { SwingInput } from './swingInput';
 
 export interface RoundConfig {
@@ -153,6 +153,8 @@ export class Round {
     private cfg: RoundConfig,
   ) {
     this.rng = new Rng(cfg.seed);
+    // thin mountain air: club yardages and the ball flight both follow the altitude
+    setAltitude(cfg.course.altitude ?? 0);
     this.match = new MatchState(cfg.course.holes.map((h) => h.par), cfg.format, cfg.firstHole);
     this.weather = pickWeather(cfg.course, this.rng, cfg.practice ? 'fair' : save.settings.weather, cfg.options.weather);
     this.props = new CourseProps(scene);
@@ -252,8 +254,9 @@ export class Round {
     const playDir = new THREE.Vector2(field.cup.x - field.tee.x, field.cup.z - field.tee.z).normalize();
     // a strong key sun with less sky fill reads as a bright broadcast day
     const W = this.weather;
-    // time of day: Pebble plays in the warm, low late-afternoon sun of its sky; grey days are cool
-    const golden = course.style === 'coastal' && !W.hdri;
+    // time of day: the desert plays in warm, low late-afternoon sun; grey days are cool
+    const T = traits(course);
+    const golden = T.golden && !W.hdri;
     await this.env.apply(W.hdri ?? course.hdri, {
       envIntensity: course.envIntensity * 0.75 * W.envMul,
       sunIntensity: course.sunIntensity * 1.35 * W.sunMul * (golden ? 1.06 : 1),
@@ -262,9 +265,9 @@ export class Round {
       minSunY: golden ? 0.27 : 0.32,
       sunColor: golden ? new THREE.Color(1, 0.9, 0.78) : W.hdri ? new THREE.Color(0.9, 0.94, 1) : undefined,
     });
-    const misty = course.id === 'standrews' || !!W.hdri;
+    const misty = !!W.hdri;
     this.env.haze = {
-      density: (misty ? 0.0007 : course.style === 'coastal' ? 0.00026 : 0.00022) * W.hazeMul * (course.id === 'standrews' && W.hdri ? 0.7 : 1),
+      density: (misty ? 0.0007 : T.haze) * W.hazeMul,
       falloff: 1 / 380,
       base: Math.min(field.teeH, field.seaLevel + 12) - 8,
       skyHaze: misty ? 0.85 : 0.55,
@@ -282,13 +285,13 @@ export class Round {
     const wa = this.rng.range(0, Math.PI * 2);
     this.wind = { x: Math.cos(wa) * mph * 0.447 * 0.75, z: Math.sin(wa) * mph * 0.447 * 0.75, mph };
     this.props.setWind(this.wind.x, this.wind.z);
-    sfx.setCourseAmbience(course.style, mph);
+    sfx.setCourseAmbience(T, mph);
     setVegetationWind(this.wind.x, this.wind.z);
     this.grass?.setWind(this.wind.x, this.wind.z);
     // cloud shadows drift with the wind
     const cs = (mph * 0.447 + 4) * 0.0016 * 0.6;
     cloudUniforms.uCloud.value.set(Math.cos(wa) * cs, Math.sin(wa) * cs);
-    cloudUniforms.uCloudCover.value = W.cloudCover ?? (course.id === 'standrews' ? 0.45 : course.id === 'pebble' ? 0.18 : 0.3);
+    cloudUniforms.uCloudCover.value = W.cloudCover ?? T.cloudCover;
     // competitors to the tee
     const t = field.tee;
     const right = { x: -field.teeDir.z, z: field.teeDir.x };
@@ -324,6 +327,7 @@ export class Round {
     const o = this.cfg.opponent;
     const extra: string[] = [];
     if (i === 0 && !this.cfg.practice) extra.push(`vs ${o.name} · ${o.personality.label}: ${o.personality.blurb}`);
+    if (i === 0 && (course.altitude ?? 0) > 300) extra.push(`Altitude ${Math.round(((course.altitude ?? 0) * 3.281) / 100) * 100} ft: the ball flies ${Math.round((altitudeCarryGain() - 1) * 100)}% farther`);
     extra.push(`Pin: ${this.pinSheet()}`);
     if (this.cfg.practice) extra.push('N next hole · B putting practice');
     const wx = this.weather.kind === 'fair' ? '' : ` · ${this.weather.label}`;
@@ -519,6 +523,7 @@ export class Round {
       wind: { x: this.wind.x, z: this.wind.z },
       firmness: this.cfg.course.firmness * (1 - 0.15 * this.weather.wet),
       wet: this.weather.wet,
+      air: airDensityAt(this.cfg.course.altitude ?? 0),
       cup: this.field.cup,
       flagIn: !putting,
       trees: forPreview ? undefined : this.treeIndex ?? undefined,
@@ -1450,6 +1455,7 @@ export class Round {
 
   dispose() {
     this.disposed = true;
+    setAltitude(0);
     this.swing.enabled = false;
     this.replay?.ball.dispose();
     this.replay = null;

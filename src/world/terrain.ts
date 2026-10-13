@@ -3,7 +3,7 @@
 // cliffs), water surfaces and the land beyond the hole.
 import * as THREE from 'three';
 import { loadTexture, makeNoiseTexture, makeWaterNormals } from '../core/assets';
-import type { CourseDef } from '../data/courses';
+import { traits, type CourseDef } from '../data/courses';
 import { HoleField } from './holeGen';
 
 export interface TerrainTextures {
@@ -92,7 +92,6 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
   // the normal map is sampled with world UVs in the shader; it is set here for the TBN only
   mat.normalMap = t.fineN;
   const col = (h: number) => new THREE.Color(h);
-  const style = course.style;
   const uniforms = {
     covA: { value: maps.coverA },
     covB: { value: maps.coverB },
@@ -114,7 +113,10 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
     cSand: { value: col(course.colors.sand) },
     cFescue: { value: col(course.colors.fescue) },
     uFescue: { value: course.fescue ? 1 : 0 },
-    uCliffRock: { value: style === 'coastal' ? 1 : style === 'parkland' ? 0.75 : 0.2 },
+    uCliffRock: { value: traits(course).cliffRock },
+    cRock: { value: col(course.rock ?? 0x605850) },
+    // sea floor: white sand on a beach course, dark wet sand under cliffs
+    cSeabed: { value: course.style === 'beach' ? col(course.colors.sand).multiplyScalar(0.42) : new THREE.Color(0.32, 0.28, 0.22) },
     uGreenDir: { value: new THREE.Vector2(Math.sin(field.green.rot), -Math.cos(field.green.rot)) },
     uGreenC: { value: new THREE.Vector2(field.green.x, field.green.z) },
     uSea: { value: field.hasOcean ? field.seaLevel : -1000 },
@@ -155,6 +157,7 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
          uniform vec3 aFine, aRough, aSand, aCliff;
          uniform vec3 cFairway, cRough, cGreen, cDeep, cSand, cFescue;
          uniform float uFescue, uCliffRock, uSea, uTime, uCloudCover;
+         uniform vec3 cRock, cSeabed;
          uniform vec2 uGreenDir, uGreenC, uCloud, uRake;
          uniform vec3 uCup;
          ${CLOUD_GLSL}
@@ -246,7 +249,7 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
         vec3 bw = pow(abs(Nw), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
         vec3 rx = texture2D(tCliff, vWPos.zy * 0.11).rgb, ry = texture2D(tCliff, wp * 0.11).rgb, rz = texture2D(tCliff, vWPos.xy * 0.11).rgb;
         vec3 cliffT = (rx * bw.x + ry * bw.y + rz * bw.z) / aCliff;
-        vec3 rockCol = vec3(0.115, 0.098, 0.082) * cliffT * (0.8 + 0.4 * macro2);
+        vec3 rockCol = cRock * cliffT * (0.8 + 0.4 * macro2);
         // exposed earth / revetted turf walls: dark peaty soil with some sandy streaks
         vec3 soilCol = mix(vec3(0.07, 0.055, 0.038), cSand * 0.38 * vec3(0.95, 0.9, 0.82), 0.35 * sT.r) * (0.8 + 0.4 * micro);
         vec3 steepCol = mix(soilCol, rockCol, uCliffRock);
@@ -267,7 +270,7 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
         // pond and burn banks, and beach sand at sea level
         col *= 1.0 - 0.45 * wWet;
         float wet = 1.0 - smoothstep(uSea - 0.2, uSea + 1.2, vWPos.y);
-        col = mix(col, vec3(0.32, 0.28, 0.22) * (0.8 + 0.4 * micro), wet * (1.0 - steep * 0.5));
+        col = mix(col, cSeabed * (0.8 + 0.4 * micro) * mix(0.6, 1.0, smoothstep(uSea - 0.4, uSea + 0.8, vWPos.y)), wet * (1.0 - steep * 0.5));
         diffuseColor.rgb = col;
         gDeep = wDeep * uFescue;
         gSand = wBk; gGreen = max(wGr, wFr * 0.6); gMown = max(max(wFw, wTee), wFr); gSteep = steep; gWet = max(wWet, wet);
@@ -329,7 +332,7 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
         }`,
       );
   };
-  mat.customProgramCacheKey = () => 'terrain-v7';
+  mat.customProgramCacheKey = () => 'terrain-v8';
   return mat;
 }
 
