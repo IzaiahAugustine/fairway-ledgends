@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import type { CourseDef } from '../data/courses';
 import type { HoleField } from './holeGen';
 import { COVER_GLSL, terrainTime, type TerrainMaps, type TerrainTextures } from './terrain';
+import { DIVOT_GLSL, divotUniforms } from './divots';
 
 type Quality = 'low' | 'medium' | 'high';
 
@@ -118,6 +119,7 @@ export class GrassField {
       uSea: { value: field.hasOcean ? field.seaLevel : -1000 },
       uTime: terrainTime,
       uWind: grassWind.uWind,
+      ...divotUniforms,
     };
     const tall = def.tall;
     mat.onBeforeCompile = (shader) => {
@@ -135,6 +137,7 @@ export class GrassField {
           varying vec3 vGrassCol;
           varying float vGrassT;
           ${COVER_GLSL.replace(/fwidth\(d\) \* 0\.7/g, '0.0')}
+          ${DIVOT_GLSL}
           vec2 hash22(vec2 p) {
             vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
             p3 += dot(p3, p3.yzx + 33.33);
@@ -182,6 +185,7 @@ export class GrassField {
           float wDeep = smoothstep(-0.3, 0.3, dDeep + nEdge * 3.0);
           float noGrass = max(max(step(0.0, dGr + 0.15), step(0.0, dFr + 0.05)), max(step(0.0, dBk + n1 * 0.18 + 0.02), step(0.0, dTee)));
           noGrass = max(noGrass, step(0.0, dWet * 2.0));
+          noGrass = max(noGrass, inDivot(root)); // turf torn out by a divot
           float slope = cb.a * 2.55;
           noGrass = max(noGrass, smoothstep(0.55, 0.85, slope + (hr - 0.5) * 0.25));
           float camD = distance(cameraPosition.xz, root);
@@ -272,7 +276,7 @@ export class GrassField {
       const m = mat as unknown as { defines?: Record<string, string> };
       m.defines = { ...(m.defines ?? {}), GRASS_TALL: '' };
     }
-    mat.customProgramCacheKey = () => `grass-v1-${def.name}`;
+    mat.customProgramCacheKey = () => `grass-v2-${def.name}`;
     return mat;
   }
 

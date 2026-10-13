@@ -36,6 +36,8 @@ export interface SimEnv {
   seed?: number;
   /** Stop at the first ground contact (used for carry calibration and previews). */
   flightOnly?: boolean;
+  /** Rain: 0 dry .. 1 soaked. Softer landings and slower roll, greens included. */
+  wet?: number;
 }
 
 export interface Launch {
@@ -142,6 +144,7 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
   const samples: number[] = [];
   const events: SimEvent[] = [];
   const firm = env.firmness;
+  const wet = env.wet ?? 0;
   let x = l.x, y = l.y, z = l.z;
   const la = (l.launchDeg * Math.PI) / 180;
   let vx = l.speed * Math.cos(la) * l.dirX;
@@ -172,6 +175,9 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
   const dtF = 1 / 240;
   const push = () => {
     samples.push(t, x, y, z);
+  };
+  const pushAt = (pt: number, px: number, py: number, pz: number) => {
+    samples.push(pt, px, py, pz);
   };
   push();
 
@@ -281,9 +287,8 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
         // dunk into the cup
         if (cup && Math.hypot(x - cup.x, z - cup.z) < CUP_R - BALL_R * 0.2 && Math.hypot(vx, vz) < 4.5) {
           outcome = 'holed';
-          x = cup.x; z = cup.z; y = h - 0.06;
           events.push({ t, type: 'cup', x, y, z });
-          push();
+          ({ x, y, z, t } = dropIntoCup(x, z, vx, vz, t, cup, ground, pushAt));
           break;
         }
         const g = ground.gradAt(x, z);
@@ -295,7 +300,7 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
           let tx = vx - vn * nx, ty = vy - vn * ny, tz = vz - vn * nz;
           const vt = Math.hypot(tx, ty, tz) || 1e-6;
           tx /= vt; ty /= vt; tz /= vt;
-          const e = clamp((RESTITUTION[s] ?? 0.2) * (0.8 + 0.2 * firm) * (1 - 0.25 * clamp(-vn / 30, 0, 1)), 0, 0.6);
+          const e = clamp((RESTITUTION[s] ?? 0.2) * (0.8 + 0.2 * firm) * (1 - 0.25 * clamp(-vn / 30, 0, 1)) * (1 - 0.3 * wet), 0, 0.6);
           const mu = (FRICTION[s] ?? 0.4) / (0.85 + 0.15 * firm);
           const rpm = (spin * 60) / (2 * Math.PI);
           const bite = (SPIN_BITE[s] ?? 0.1) * clamp(rpm / 9000, 0, 1.4) ** 2 * 0.55;
@@ -335,7 +340,7 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
       let accz = -slopeK * g.z;
       const sp = Math.hypot(vx, vz);
       const rr = ROLL[s] ?? ROLL[Surf.Rough];
-      const decel = (rr.a + rr.k * sp) / (s === Surf.Green ? 1 : firm);
+      const decel = ((rr.a + rr.k * sp) / (s === Surf.Green ? 1 : firm)) * (1 + (s === Surf.Green ? 0.22 : 0.3) * wet);
       const slopeA = Math.hypot(accx, accz);
       if (sp < 0.02) {
         if (slopeA < decel * 1.05) {
@@ -379,22 +384,27 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
         const cd = Math.hypot(qx - cup.x, qz - cup.z);
         if (cd < closest) closest = cd;
         if (cd < CUP_R && lipCooldown <= 0) {
+          // The ball's centre is over the hole. Whether it drops depends on how far its line of
+          // travel passes from the centre (not on where it first crosses the rim, which is always
+          // ~one cup radius) and on its speed: dead centre drops up to ~1.6 m/s (Holmes 1991), an
+          // edge-of-the-cup line only when dying. Anything barely moving falls in.
           const spd = Math.hypot(vx, vz);
-          const vmax = 1.45 * Math.sqrt(Math.max(0, 1 - (cd / CUP_R) ** 2));
-          if (spd < vmax || cd < CUP_R * 0.35 && spd < 1.75) {
+          const b = spd > 1e-6 ? Math.abs((cup.x - qx) * vz - (cup.z - qz) * vx) / spd : 0;
+          const e = Math.min(1, b / CUP_R);
+          const vmax = CAPTURE_SPEED * Math.sqrt(1 - e * e);
+          if (spd < vmax || spd < 0.3) {
             outcome = 'holed';
-            x = cup.x; z = cup.z; y = ground.heightAt(cup.x, cup.z) - 0.06;
-            events.push({ t, type: 'cup', x, y, z });
-            push();
+            events.push({ t, type: 'cup', x: qx, y, z: qz });
+            ({ x, y, z, t } = dropIntoCup(qx, qz, vx, vz, t, cup, ground, pushAt));
             break;
           } else {
-            // lip out: deflect and slow
+            // lip out: the far edge turns the ball and takes some pace off it
             const side = (qx - cup.x) * -vz + (qz - cup.z) * vx >= 0 ? 1 : -1;
-            const ang = side * (0.35 + 0.6 * (cd / CUP_R)) * (1.2 - clamp(spd / 3, 0, 1));
+            const ang = side * (0.12 + 0.35 * e) * (1.1 - clamp(spd / 3, 0, 1));
             const c = Math.cos(ang), sn = Math.sin(ang);
             const nvx = vx * c - vz * sn, nvz = vx * sn + vz * c;
-            vx = nvx * 0.7; vz = nvz * 0.7;
-            lipCooldown = 0.25;
+            vx = nvx * 0.8; vz = nvz * 0.8;
+            lipCooldown = 0.2;
             events.push({ t, type: 'lip', x, y, z });
           }
         }
@@ -429,6 +439,62 @@ export function simulateShot(l: Launch, env: SimEnv): SimResult {
     events,
     closest: outcome === 'holed' ? 0 : closest,
   };
+}
+
+/** Fastest a ball rolling straight at the centre can be travelling and still drop (m/s). */
+const CAPTURE_SPEED = 1.6;
+/** Cup depth (m), matching the Blender cup liner. */
+export const CUP_DEPTH = 0.102;
+/** How far the top of the cup liner sits below the green (rules: at least 1 inch, we use ~0.7). */
+export const CUP_SINK = 0.018;
+
+/**
+ * The ball falls into the cup: it keeps its pace across the hole while gravity pulls it down, is
+ * stopped by the far wall, and settles on the bottom. Appends 60 Hz samples so the drop is
+ * visible, and returns where (and when) it comes to rest.
+ */
+function dropIntoCup(
+  x: number, z: number, vx: number, vz: number, t: number,
+  cup: { x: number; z: number }, ground: Ground, push: (t: number, x: number, y: number, z: number) => void,
+) {
+  const top = ground.heightAt(cup.x, cup.z);
+  const bottom = top - CUP_SINK - CUP_DEPTH + BALL_R;
+  const wall = CUP_R - BALL_R - 0.001;
+  let y = top + BALL_R, vy = 0;
+  const dt = 1 / 240;
+  let next = t;
+  for (let i = 0; i < 240 * 1.2; i++) {
+    t += dt;
+    vy -= G * dt;
+    y += vy * dt;
+    x += vx * dt;
+    z += vz * dt;
+    // tip over the edge into the hole, then the walls hold it
+    const dx = x - cup.x, dz = z - cup.z;
+    const d = Math.hypot(dx, dz);
+    const lim = y > top ? CUP_R : wall;
+    if (d > lim) {
+      x = cup.x + (dx / d) * lim;
+      z = cup.z + (dz / d) * lim;
+      // hitting the wall kills the horizontal pace
+      const nx = dx / d, nz = dz / d;
+      const vn = vx * nx + vz * nz;
+      if (vn > 0) { vx -= 1.3 * vn * nx; vz -= 1.3 * vn * nz; }
+      vx *= 0.6; vz *= 0.6;
+    }
+    if (y <= bottom) {
+      y = bottom;
+      vy = -vy * 0.15;
+      vx *= 0.5; vz *= 0.5;
+      if (Math.abs(vy) < 0.05 && Math.hypot(vx, vz) < 0.02) break;
+    }
+    if (t >= next) {
+      push(t, x, y, z);
+      next += 1 / 60;
+    }
+  }
+  push(t, x, y, z);
+  return { x, y, z, t };
 }
 
 /** Interpolated position along a simulated shot at time t. */

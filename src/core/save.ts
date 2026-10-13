@@ -1,5 +1,8 @@
 // Local save data: player profile, appearance, XP, club tiers, stats and settings.
 import { CLUBS } from '../data/clubs';
+import type { SwingStyleId } from '../data/swingStyles';
+import type { HoleSet } from '../data/courses';
+import type { Format } from '../game/match';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 export type SwingMode = 'stick' | 'threeClick';
@@ -32,7 +35,19 @@ export interface SaveData {
   clubs: Record<string, number>;
   stats: { played: number; won: number; lost: number; halved: number; holesWon: number; birdies: number; eagles: number; aces: number };
   best: Record<string, string>;
-  settings: { swingMode: SwingMode; gimmes: boolean; sound: boolean; quality: Quality; difficulty: Difficulty; courseId: string; textSize: TextSize };
+  /** Swing archetype the player plays with. */
+  swingStyle: SwingStyleId;
+  settings: { swingMode: SwingMode; gimmes: boolean; sound: boolean; quality: Quality; difficulty: Difficulty; courseId: string; textSize: TextSize; format: Format; holes: HoleSet; weather: 'random' | 'fair';
+    /** Volumes 0..1. */
+    volMaster: number; volEffects: number; volAmbience: number; volMusic: number;
+    /** Music during rounds (menus always have it unless the music volume is 0). */
+    musicInRound: boolean;
+    /** How strong the wind blows in rounds. */
+    wind: 'calm' | 'light' | 'full';
+    /** What the automatic quality protects first: frame rate, a balance, or how it looks. */
+    gfxPriority: 'smooth' | 'balanced' | 'quality' };
+  /** Career mode: index of the next event to win. */
+  career: { stage: number };
 }
 
 const KEY = 'fairwayLegends.save.v1';
@@ -64,7 +79,9 @@ function defaults(): SaveData {
     clubs,
     stats: { played: 0, won: 0, lost: 0, halved: 0, holesWon: 0, birdies: 0, eagles: 0, aces: 0 },
     best: {},
-    settings: { swingMode: 'stick', gimmes: true, sound: true, quality: 'high', difficulty: 'medium', courseId: 'shinnecock', textSize: 'large' },
+    swingStyle: 'classic',
+    settings: { swingMode: 'stick', gimmes: true, sound: true, quality: 'high', difficulty: 'medium', courseId: 'shinnecock', textSize: 'large', format: 'match', holes: 'front', weather: 'random', volMaster: 0.7, volEffects: 0.8, volAmbience: 0.5, volMusic: 0.5, musicInRound: false, wind: 'light', gfxPriority: 'balanced' },
+    career: { stage: 0 },
   };
 }
 
@@ -82,6 +99,7 @@ function load(): SaveData {
       stats: { ...d.stats, ...(parsed.stats ?? {}) },
       best: { ...(parsed.best ?? {}) },
       settings: { ...d.settings, ...(parsed.settings ?? {}) },
+      career: { ...d.career, ...(parsed.career ?? {}) },
     };
   } catch {
     return d;

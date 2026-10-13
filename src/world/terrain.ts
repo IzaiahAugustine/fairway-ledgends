@@ -84,6 +84,9 @@ export const COVER_GLSL = /* glsl */ `
   float sdf(float v) { return (v - 0.5) * 4.0; }
   float cover(float d, float soft) { float w = max(fwidth(d) * 0.7, soft); return smoothstep(-w, w, d); }`;
 
+/** The cup: (x, z, radius). The terrain is cut away inside it so the cup liner and ball show. */
+export const cupUniforms = { uCup: { value: new THREE.Vector3(0, 0, -1) } };
+
 export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: TerrainTextures, maps: TerrainMaps): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
   // the normal map is sampled with world UVs in the shader; it is set here for the TBN only
@@ -119,6 +122,7 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
     uTime: terrainTime,
     uCloud: cloudUniforms.uCloud,
     uCloudCover: cloudUniforms.uCloudCover,
+    uCup: cupUniforms.uCup,
   };
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -152,6 +156,7 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
          uniform vec3 cFairway, cRough, cGreen, cDeep, cSand, cFescue;
          uniform float uFescue, uCliffRock, uSea, uTime, uCloudCover;
          uniform vec2 uGreenDir, uGreenC, uCloud, uRake;
+         uniform vec3 uCup;
          ${CLOUD_GLSL}
          ${COVER_GLSL}
          varying vec2 vPath;
@@ -171,6 +176,7 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
       .replace(
         '#include <map_fragment>',
         `
+        if (distance(vWPos.xz, uCup.xy) < uCup.z) discard; // the hole
         vec4 ca = texture2D(covA, vSplatUv);
         vec4 cb = texture2D(covB, vSplatUv);
         vec2 wp = vWPos.xz;
@@ -215,11 +221,15 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
         float gGrain2 = dot(vxz, vec2(-uGreenDir.y, uGreenDir.x)) * (0.35 + 0.65 * vh);
 
         vec3 roughCol = cRough * rgh * (0.8 + 0.4 * macro) * (0.9 + 0.2 * macro2);
+        // sun-dried patches and lusher hollows in the rough, and a faint hue drift on fairways
+        float dry = smoothstep(0.58, 0.82, texture2D(tNoise, wp * 0.0075 + 0.21).b);
+        float lush = smoothstep(0.62, 0.85, texture2D(tNoise, wp * 0.011 + 0.77).r);
+        roughCol *= mix(vec3(1.0), vec3(1.16, 1.04, 0.7), dry * 0.75) * mix(vec3(1.0), vec3(0.86, 0.97, 0.9), lush * 0.6);
         float clump = smoothstep(0.3, 0.7, texture2D(tNoise, wp * 0.021 + 0.61).a);
         vec3 rghC = pow(rgh, vec3(1.6));
         vec3 fescue = mix(cFescue, cDeep * 0.9, clump * 0.7) * mix(vec3(1.0), rghC, 0.85) * (0.72 + 0.5 * macro2) * (0.85 + 0.3 * micro);
         vec3 deepCol = mix(cDeep * rgh * (0.75 + 0.45 * macro) * (0.85 + 0.3 * micro), fescue, uFescue);
-        vec3 fwCol = cFairway * fine * (1.0 + 0.12 * lane * grain + 0.035 * crossL * grain) * (0.9 + 0.2 * macro);
+        vec3 fwCol = cFairway * fine * (1.0 + 0.12 * lane * grain + 0.035 * crossL * grain) * (0.9 + 0.2 * macro) * mix(vec3(1.0), vec3(1.06, 1.02, 0.9), dry * 0.35);
         vec3 cutCol = mix(cFairway, cRough, 0.55) * mix(fine, rgh, 0.5) * (0.9 + 0.2 * macro);
         vec3 teeCol = cFairway * 1.03 * fine * (1.0 + 0.06 * lanes(vPath.x, 1.4) * grain);
         vec3 frCol = mix(cFairway, cGreen, 0.45) * mix(vec3(1.0), fineS, 0.45) * (0.97 + 0.06 * macro2);
@@ -319,8 +329,38 @@ export function makeTerrainMaterial(field: HoleField, course: CourseDef, t: Terr
         }`,
       );
   };
-  mat.customProgramCacheKey = () => 'terrain-v5';
+  mat.customProgramCacheKey = () => 'terrain-v7';
   return mat;
+}
+
+/**
+ * Height and normal of the rendered terrain triangles at (x, z) for a mesh built with `step`
+ * (they differ slightly from the smooth physics height between vertices). Used to seat the cup.
+ */
+export function terrainSurfaceAt(field: HoleField, step: number, x: number, z: number): { y: number; n: THREE.Vector3 } {
+  const { nx, nz, minX, minZ, heights } = field;
+  const mnx = Math.floor((nx - 1) / step) + 1;
+  const mnz = Math.floor((nz - 1) / step) + 1;
+  const cell = 0.5 * step;
+  const gx = (x - minX) / cell, gz = (z - minZ) / cell;
+  const i = Math.max(0, Math.min(mnx - 2, Math.floor(gx)));
+  const j = Math.max(0, Math.min(mnz - 2, Math.floor(gz)));
+  const fx = gx - i, fz = gz - j;
+  const H = (ii: number, jj: number) => heights[jj * step * nx + ii * step];
+  const ha = H(i, j), hb = H(i + 1, j), hc = H(i, j + 1), hd = H(i + 1, j + 1);
+  let sx: number, sz: number, y: number;
+  if ((i + j) % 2 === 0) {
+    // diagonal b-c: triangles (a, c, b) and (b, c, d)
+    if (fx + fz <= 1) { sx = hb - ha; sz = hc - ha; y = ha + sx * fx + sz * fz; }
+    else { sx = hd - hc; sz = hd - hb; y = hd - sx * (1 - fx) - sz * (1 - fz); }
+  } else {
+    // diagonal a-d: triangles (a, c, d) and (a, d, b)
+    if (fz >= fx) { sx = hd - hc; sz = hc - ha; }
+    else { sx = hb - ha; sz = hd - hb; }
+    y = ha + sx * fx + sz * fz;
+  }
+  const n = new THREE.Vector3(-sx / cell, 1, -sz / cell).normalize();
+  return { y, n };
 }
 
 export function buildTerrainMesh(field: HoleField, course: CourseDef, t: TerrainTextures, step = 2): THREE.Group {
@@ -398,6 +438,7 @@ export function buildTerrainMesh(field: HoleField, course: CourseDef, t: Terrain
   mesh.userData.disposables = [maps.coverA, maps.coverB];
   group.add(mesh);
   group.userData.maps = maps;
+  group.userData.step = step;
 
   // Ponds and burns (the open sea and the land beyond the hole live in OuterWorld).
   for (const w of buildWater(field, t)) group.add(w);

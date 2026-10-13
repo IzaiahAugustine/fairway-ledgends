@@ -126,6 +126,9 @@ export class Golfer {
         if (!c) {
           c = m.clone();
           cloned.set(m, c);
+          // fabric weave and skin detail stay crisp at the glancing angles of the address camera
+          const sm = c as THREE.MeshStandardMaterial;
+          for (const t of [sm.map, sm.normalMap, sm.roughnessMap, sm.metalnessMap, sm.aoMap]) if (t) t.anisotropy = 8;
           const name = m.name.replace(/\.\d+$/, '');
           if (!this.mats.has(name)) this.mats.set(name, []);
           this.mats.get(name)!.push(c as THREE.MeshStandardMaterial);
@@ -275,10 +278,14 @@ export class Golfer {
   }
 
   /** Scrub the backswing: fraction 0..1.1 of the way to the top. */
+  /** Swing style: backswing length (1 = full) and downswing duration multiplier. */
+  swingLength = 1;
+  swingSpeed = 1;
+
   setBackswing(frac: number) {
     if (this.phase !== 'address' && this.phase !== 'backswing') return;
     this.phase = 'backswing';
-    this.t = Math.max(0, Math.min(1, frac)) * this.timing.top;
+    this.t = Math.max(0, Math.min(1, frac * this.swingLength)) * this.timing.top;
     this.applyPose(`Swing_${this.anim}`, this.t);
   }
 
@@ -293,7 +300,7 @@ export class Golfer {
     const tm = this.timing;
     this.downFrom = this.t;
     this.partial = this.t < tm.top * 0.8;
-    this.downDur = Math.max(0.12, duration);
+    this.downDur = Math.max(0.12, duration * this.swingSpeed);
     this.downElapsed = 0;
     this.phase = 'downswing';
     this.onImpact = onImpact;

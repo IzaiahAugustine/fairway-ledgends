@@ -1,6 +1,7 @@
 // Converts a club + shot type + lie + swing result into ball launch conditions.
 import { YARD, clamp } from '../core/rng';
 import { CLUBS, TIERS, type ClubDef, type ShotTypeDef } from '../data/clubs';
+import { swingStyleById, type SwingStyleId } from '../data/swingStyles';
 import { FlatGround, ROLL, simulateShot, speedForRoll, type Launch } from '../physics/ballPhysics';
 import { Surf } from '../world/holeGen';
 
@@ -94,12 +95,32 @@ export interface ShotSetup {
   teed: boolean;
   /** Putts: full-power roll distance on a flat green in metres. */
   puttScale?: number;
+  /** The golfer's swing style (default Classic Tour). */
+  style?: SwingStyleId;
+  /** Spin the player dials in: backspin flies a touch higher and shorter and checks up; topspin runs. */
+  spin?: SpinMod;
 }
 
-/** Full-power carry in metres for a club/tier/shot/lie combination. */
-export function fullCarry(club: ClubDef, tier: number, shot: ShotTypeDef, lie: Surf, teed: boolean): number {
+export type SpinMod = 'normal' | 'back' | 'top';
+export const SPIN_MODS: { id: SpinMod; name: string; desc: string; spin: number; launch: number; carry: number; err: number }[] = [
+  { id: 'normal', name: 'Normal', desc: 'Stock spin', spin: 1, launch: 1, carry: 1, err: 1 },
+  { id: 'back', name: 'Backspin', desc: 'Higher, a little shorter, stops fast', spin: 1.4, launch: 1.05, carry: 0.96, err: 1.06 },
+  { id: 'top', name: 'Topspin', desc: 'Lower, runs out after landing', spin: 0.55, launch: 0.92, carry: 1, err: 1.04 },
+];
+export const spinMod = (id?: SpinMod) => SPIN_MODS.find((m) => m.id === id) ?? SPIN_MODS[0];
+
+/** Wedges, chips, pitches and putts: where a short-game style's touch counts. */
+export function isShortGame(club: ClubDef, shot: ShotTypeDef): boolean {
+  return club.kind === 'wedge' || club.kind === 'putter' || ['chip', 'bump', 'pitch', 'flop'].includes(shot.id);
+}
+
+/** Full-power carry in metres for a club/tier/shot/lie combination and swing style. */
+export function fullCarry(club: ClubDef, tier: number, shot: ShotTypeDef, lie: Surf, teed: boolean, style?: SwingStyleId): number {
   const lm = lieMods(lie, club, teed);
-  return club.carry * YARD * TIERS[tier].power * shot.distMul * lm.dist;
+  // a style's extra (or lost) distance shows fully on long clubs and fades out on short shots
+  const st = swingStyleById(style);
+  const styleMul = isShortGame(club, shot) ? 1 + (st.power - 1) * 0.3 : st.power;
+  return club.carry * YARD * TIERS[tier].power * shot.distMul * lm.dist * styleMul;
 }
 
 export function launchFor(setup: ShotSetup, swing: SwingResult): Launch {
@@ -117,16 +138,20 @@ export function launchFor(setup: ShotSetup, swing: SwingResult): Launch {
     return { x: setup.x, y: setup.y, z: setup.z, speed, launchDeg: 0, dirX: dx, dirZ: dz, spinRpm: 0, axisDeg: 0, putt: true };
   }
   const lm = lieMods(setup.lie, club, setup.teed);
+  const st = swingStyleById(setup.style);
+  const short = isShortGame(club, shot);
   const p = clamp(swing.power, 0.03, 1.12);
-  const carry = fullCarry(club, setup.tier, shot, setup.lie, setup.teed) * p;
-  const launchDeg = club.launch * shot.launchMul * lm.launch * (1 + Math.max(0, 1 - p) * 0.4);
-  const spin = club.spin * tier.spin * shot.spinMul * lm.spin * (0.8 + 0.2 * Math.min(1, p));
+  const sm = spinMod(setup.spin);
+  const carry = fullCarry(club, setup.tier, shot, setup.lie, setup.teed, setup.style) * p * sm.carry;
+  const launchDeg = club.launch * shot.launchMul * lm.launch * st.launch * sm.launch * (1 + Math.max(0, 1 - p) * 0.4);
+  const spin = club.spin * tier.spin * shot.spinMul * lm.spin * st.spin * sm.spin * (0.8 + 0.2 * Math.min(1, p));
+  const styleCurve = st.curve * (short ? 0.25 : 1);
   const speed = solveSpeed(carry, launchDeg, spin);
   const a = ((shot.start + swing.dirErr) * Math.PI) / 180;
   const rX = -setup.aimZ, rZ = setup.aimX;
   const dx = setup.aimX * Math.cos(a) + rX * Math.sin(a);
   const dz = setup.aimZ * Math.cos(a) + rZ * Math.sin(a);
-  return { x: setup.x, y: setup.y, z: setup.z, speed, launchDeg, dirX: dx, dirZ: dz, spinRpm: spin, axisDeg: shot.curve * (0.6 + 0.4 * tier.spin) + swing.curveErr };
+  return { x: setup.x, y: setup.y, z: setup.z, speed, launchDeg, dirX: dx, dirZ: dz, spinRpm: spin, axisDeg: shot.curve * (0.6 + 0.4 * tier.spin) + styleCurve + swing.curveErr };
 }
 
 /** Error multiplier applied to swing mistakes for a club tier, shot type and lie. */
@@ -134,17 +159,19 @@ export function errorScale(setup: ShotSetup): number {
   const tier = TIERS[setup.tier];
   const lm = lieMods(setup.lie, setup.club, setup.teed);
   const lengthFactor = setup.club.kind === 'driver' ? 1.25 : setup.club.kind === 'wood' || setup.club.kind === 'hybrid' ? 1.12 : setup.club.kind === 'wedge' ? 0.8 : 1;
-  return Math.pow(1 / tier.accuracy, 0.9) * setup.shot.errMul * lm.err * lengthFactor;
+  const st = swingStyleById(setup.style);
+  const styleErr = isShortGame(setup.club, setup.shot) ? st.shortError : st.error;
+  return Math.pow(1 / tier.accuracy, 0.9) * setup.shot.errMul * lm.err * lengthFactor * styleErr * spinMod(setup.spin).err;
 }
 
 /** Picks the club whose full carry best matches a distance (metres). */
-export function suggestClub(dist: number, tiers: Record<string, number>, lie: Surf, teed: boolean, allowDriver: boolean, normal: ShotTypeDef): ClubDef {
+export function suggestClub(dist: number, tiers: Record<string, number>, lie: Surf, teed: boolean, allowDriver: boolean, normal: ShotTypeDef, style?: SwingStyleId): ClubDef {
   let best = CLUBS[CLUBS.length - 2];
   let bestErr = Infinity;
   for (const c of CLUBS) {
     if (c.kind === 'putter') continue;
     if (c.kind === 'driver' && !allowDriver) continue;
-    const full = fullCarry(c, tiers[c.id] ?? 0, normal, lie, teed);
+    const full = fullCarry(c, tiers[c.id] ?? 0, normal, lie, teed, style);
     // prefer a club that reaches with ~92% power
     const need = dist / full;
     const err = need > 1.02 ? (need - 1) * 6 : Math.abs(0.93 - need);

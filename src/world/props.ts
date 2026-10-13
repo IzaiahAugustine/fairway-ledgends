@@ -4,9 +4,9 @@ import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { loadGLTF } from '../core/assets';
-import { BALL_R, CUP_R } from '../physics/ballPhysics';
+import { BALL_R, CUP_DEPTH, CUP_R, CUP_SINK } from '../physics/ballPhysics';
 import type { HoleField } from './holeGen';
-import { terrainTime } from './terrain';
+import { cupUniforms, terrainTime } from './terrain';
 
 const flagUniforms = { uTime: terrainTime, uWindStrength: { value: 0.5 } };
 
@@ -66,6 +66,9 @@ export class Ball {
   private glowMat: LineMaterial;
   private pos = new THREE.Vector3();
   private groundY: number | null = null;
+  /** Coin that marks the ball's spot on the green while the other player putts. */
+  private marker: THREE.Mesh;
+  private marked = false;
 
   constructor(scene: THREE.Scene, color = 0xffffff, tracerColor = '#ffffff') {
     const mat = new THREE.MeshPhysicalMaterial({ color, emissive: color, emissiveIntensity: 0, roughness: 0.32, clearcoat: 0.8, clearcoatRoughness: 0.15, normalMap: dimpleNormalMap(), normalScale: new THREE.Vector2(0.6, 0.6) });
@@ -80,6 +83,13 @@ export class Ball {
     blob.renderOrder = 2;
     this.shadowBlob = blob;
     scene.add(blob);
+    this.marker = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0125, 0.0125, 0.0018, 24).translate(0, 0.0009, 0),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(tracerColor), metalness: 0.75, roughness: 0.32 }),
+    );
+    this.marker.visible = false;
+    this.marker.castShadow = true;
+    scene.add(this.marker);
     this.tracerGeo = new LineGeometry();
     this.tracerGeo.setPositions([0, 0, 0, 0, 0, 0]);
     // shot tracer: a bright core in the golfer's colour over a soft glow of the same colour, pushed
@@ -103,6 +113,7 @@ export class Ball {
     m.emissive.setHex(hex);
   }
 
+  /** Physics position, and the ground height there (null: no contact shadow). */
   setPosition(p: THREE.Vector3, groundY: number | null) {
     this.pos.copy(p);
     this.groundY = groundY;
@@ -115,7 +126,8 @@ export class Ball {
     const p = this.pos;
     this.mesh.position.set(p.x, p.y + (s - 1) * BALL_R, p.z);
     const groundY = this.groundY;
-    if (groundY !== null && p.y - groundY < 0.6) {
+    // no contact shadow once the ball has dropped below the surface (into the cup)
+    if (groundY !== null && p.y - groundY < 0.6 && p.y > groundY + BALL_R * 0.5) {
       this.shadowBlob.visible = this.mesh.visible;
       this.shadowBlob.position.set(p.x, groundY + 0.004, p.z);
       const h = 1 + (p.y - groundY) * 2;
@@ -124,9 +136,53 @@ export class Ball {
     } else this.shadowBlob.visible = false;
   }
 
+  private lastSpinPos = new THREE.Vector3();
+  private spinAxis = new THREE.Vector3();
+  private spinQ = new THREE.Quaternion();
+
+  /**
+   * Turn the ball to match how it's moving, so the dimples show it: rolling on the ground it turns
+   * about the axis across its path (distance / radius), in the air it spins at `airRps` turns a
+   * second about the axis across its flight (backspin for positive values, clamped to a rate
+   * the eye can follow).
+   */
+  spinWithMotion(dt: number, airRps: number) {
+    const p = this.pos;
+    const dx = p.x - this.lastSpinPos.x, dz = p.z - this.lastSpinPos.z;
+    const d = Math.hypot(dx, dz);
+    this.lastSpinPos.copy(p);
+    if (d < 1e-5 || d > 5) return;
+    // axis across the direction of travel (right-hand rule: rolling forward)
+    this.spinAxis.set(dz / d, 0, -dx / d);
+    const onGround = this.groundY !== null && p.y - this.groundY < BALL_R * 1.6;
+    const angle = onGround ? d / BALL_R : -airRps * Math.PI * 2 * dt;
+    this.spinQ.setFromAxisAngle(this.spinAxis, angle);
+    this.mesh.quaternion.premultiply(this.spinQ);
+  }
+
   setVisible(v: boolean) {
-    this.mesh.visible = v;
-    if (!v) this.shadowBlob.visible = false;
+    this.mesh.visible = v && !this.marked;
+    if (!v || this.marked) this.shadowBlob.visible = false;
+  }
+
+  /** Lift the ball and leave a coin on its spot (on the green while the other player putts). */
+  setMarked(m: boolean) {
+    if (m === this.marked) return;
+    this.marked = m;
+    if (m) {
+      this.marker.position.set(this.pos.x, (this.groundY ?? this.pos.y - BALL_R) + 0.0005, this.pos.z);
+      this.marker.visible = true;
+      this.mesh.visible = false;
+      this.shadowBlob.visible = false;
+    } else {
+      this.marker.visible = false;
+      this.mesh.visible = true;
+      this.place();
+    }
+  }
+
+  get isMarked() {
+    return this.marked;
   }
 
   /**
@@ -136,7 +192,9 @@ export class Ball {
   updateScale(cam: THREE.PerspectiveCamera) {
     const d = cam.position.distanceTo(this.pos);
     const viewH = 2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2);
-    const s = Math.max(BALL_SCALE, (BALL_MIN_SCREEN * viewH) / (2 * BALL_R));
+    let s = Math.max(BALL_SCALE, (BALL_MIN_SCREEN * viewH) / (2 * BALL_R));
+    // inside the cup it must stay true to size, or an enlarged ball would poke out of the hole
+    if (this.groundY !== null && this.pos.y < this.groundY + BALL_R * 0.5) s = 1;
     this.mesh.scale.setScalar(s);
     // a far ball is a dot seen through haze and shade: lift it so it stays a crisp white dot
     (this.mesh.material as THREE.MeshPhysicalMaterial).emissiveIntensity = Math.min(0.4, (s - BALL_SCALE) * 0.05);
@@ -191,6 +249,7 @@ export class Ball {
   dispose() {
     this.mesh.removeFromParent();
     this.shadowBlob.removeFromParent();
+    this.marker.removeFromParent();
     this.tracer.removeFromParent();
     this.tracerGlow.removeFromParent();
     this.tracerGeo.dispose();
@@ -201,6 +260,10 @@ export class CourseProps {
   readonly group = new THREE.Group();
   readonly flagGroup = new THREE.Group();
   private cupDisc: THREE.Mesh;
+  private cupLiner: THREE.Object3D | null = null;
+  private cupWall: THREE.Mesh;
+  /** Height of the cup's floor, for a holed ball to rest on. */
+  cupFloorY = 0;
   private teeMarkers: THREE.Object3D[] = [];
   private loaded = false;
   private bagTemplate: THREE.Object3D | null = null;
@@ -223,6 +286,13 @@ export class CourseProps {
     disc.add(rim);
     this.cupDisc = disc;
     this.group.add(disc);
+    // the soil wall of the hole between the green's surface and the sunk cup liner
+    this.cupWall = new THREE.Mesh(
+      new THREE.CylinderGeometry(CUP_R, CUP_R, CUP_SINK + 0.004, 24, 1, true).translate(0, -(CUP_SINK + 0.004) / 2 + 0.002, 0),
+      new THREE.MeshStandardMaterial({ color: 0x2a1d12, roughness: 1, side: THREE.BackSide }),
+    );
+    this.cupWall.visible = false;
+    this.group.add(this.cupWall);
   }
 
   async init() {
@@ -276,6 +346,24 @@ export class CourseProps {
     });
     this.flagGroup.add(fm);
 
+    // the cup liner modelled in Blender: once it's there the terrain is cut open above it
+    const liner = find('Cup');
+    if (liner) {
+      this.cupLiner = liner.clone();
+      this.cupLiner.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        mat.side = THREE.DoubleSide;
+        m.material = mat;
+        m.receiveShadow = true;
+      });
+      this.cupLiner.position.set(0, 0, 0);
+      this.cupDisc.visible = false;
+      this.cupWall.visible = true;
+      this.group.add(this.cupLiner);
+    }
+
     const marker = find('TeeMarker');
     for (let i = 0; i < 2; i++) {
       let m: THREE.Object3D;
@@ -303,13 +391,24 @@ export class CourseProps {
     this.group.add(peg);
   }
 
-  place(field: HoleField) {
+  /** `surface` gives the rendered green at the cup, so the hole lines up with what's drawn. */
+  place(field: HoleField, surface?: { y: number; n: THREE.Vector3 }) {
     const cup = field.cup;
-    const h = field.heightAt(cup.x, cup.z);
     const g = field.gradAt(cup.x, cup.z);
-    const n = new THREE.Vector3(-g.x, 1, -g.z).normalize();
+    const h = surface?.y ?? field.heightAt(cup.x, cup.z);
+    const n = surface?.n ?? new THREE.Vector3(-g.x, 1, -g.z).normalize();
     this.cupDisc.position.set(cup.x, h + 0.003, cup.z);
     this.cupDisc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
+    this.cupFloorY = h - CUP_DEPTH;
+    if (this.cupLiner) {
+      // like a real cup, the liner sits a little below the surface, under a soil collar
+      this.cupLiner.position.set(cup.x, h - CUP_SINK, cup.z);
+      this.cupLiner.quaternion.copy(this.cupDisc.quaternion);
+      this.cupWall.position.set(cup.x, h, cup.z);
+      this.cupWall.quaternion.copy(this.cupDisc.quaternion);
+      this.cupFloorY = h - CUP_SINK - CUP_DEPTH;
+      cupUniforms.uCup.value.set(cup.x, cup.z, CUP_R);
+    } else cupUniforms.uCup.value.set(0, 0, -1);
     this.flagGroup.position.set(cup.x, h - 0.08, cup.z);
     // tee markers either side of the tee box
     const t = field.tee, d = field.teeDir;

@@ -8,16 +8,22 @@ import { sfx } from '../audio/sfx';
 import { toYards } from '../core/rng';
 import { persist, playerLevel, resetSave, save, type Appearance, type Difficulty, type TextSize } from '../core/save';
 import { CLUBS, MAX_TIER, SHOT_TYPES, TIERS, upgradeCost } from '../data/clubs';
-import { COURSES, courseById, coursePar, courseYards, type CourseDef } from '../data/courses';
-import { fullCarry } from '../game/shotModel';
-import { computeXp, type MatchState } from '../game/match';
+import { COURSES, HOLE_SETS, courseById, courseForSet, coursePar, courseYards, type CourseDef, type HoleSet } from '../data/courses';
+import { CAREER, careerEvent } from '../data/career';
+import { SWING_STYLES, swingStyleById, type SwingStyle, type SwingStyleId } from '../data/swingStyles';
+import { FlatGround, simulateShot } from '../physics/ballPhysics';
+import { PERFECT_SWING, fullCarry, launchFor } from '../game/shotModel';
+import { FORMATS, computeXp, type Format, type MatchOptions, type MatchState } from '../game/match';
+import { PERSONALITIES } from '../game/ai';
 import { Surf } from '../world/holeGen';
 import { clear, esc, h } from './dom';
 
 export interface MenuHooks {
-  startMatch(courseId: string, difficulty: Difficulty): void;
+  startMatch(opts: MatchOptions): void;
   previewAppearance(a: Appearance): void;
-  showroom(mode: 'menu' | 'editor' | 'shop' | 'none'): void;
+  showroom(mode: 'menu' | 'editor' | 'shop' | 'swing' | 'none'): void;
+  /** Swing-style screen: show this style's swing on the golfer (null to stop). */
+  swingDemo(style: SwingStyle | null): void;
   settingsChanged(): void;
   resume(): void;
   quitMatch(): void;
@@ -152,11 +158,60 @@ function courseArt(c: CourseDef): HTMLCanvasElement {
   return cv;
 }
 
+// ---------------------------------------------------------------- swing-style ball flights
+
+const flatGround = new FlatGround();
+const flightCache = new Map<string, { side: [number, number][]; top: [number, number][]; carry: number; total: number }>();
+
+/** A full shot with a style on flat ground, perfect strike, no wind (yards; side = height, top = lateral). */
+function styleFlight(style: SwingStyleId, clubId: string) {
+  const key = `${style}|${clubId}`;
+  let f = flightCache.get(key);
+  if (f) return f;
+  const club = CLUBS.find((c) => c.id === clubId)!;
+  const teed = club.kind === 'driver';
+  const setup = { club, tier: 1, shot: SHOT_TYPES[0], power: 1, aimX: 0, aimZ: -1, x: 0, y: teed ? 0.045 : 0.0214, z: 0, lie: teed ? Surf.Tee : Surf.Fairway, teed, style };
+  const r = simulateShot(launchFor(setup, PERFECT_SWING(1)), { ground: flatGround, wind: { x: 0, z: 0 }, firmness: 1, cup: null, flagIn: false });
+  const side: [number, number][] = [], top: [number, number][] = [];
+  for (let i = 0; i < r.samples.length; i += 4 * 3) {
+    const x = r.samples[i + 1], y = r.samples[i + 2], z = r.samples[i + 3];
+    side.push([toYards(-z), toYards(y)]);
+    top.push([toYards(-z), toYards(x)]);
+  }
+  f = { side, top, carry: toYards(r.carry), total: toYards(r.total) };
+  flightCache.set(key, f);
+  return f;
+}
+
+/** Side and top views of a style's driver and 7-iron, with Classic Tour drawn faintly behind. */
+function flightChart(style: SwingStyleId): string {
+  const W = 360, sideH = 96, topH = 70, pad = 6, maxX = 320;
+  const sx = (d: number) => pad + (d / maxX) * (W - pad * 2);
+  const path = (pts: [number, number][], fy: (v: number) => number) => pts.map(([d, v], i) => `${i ? 'L' : 'M'}${sx(d).toFixed(1)},${fy(v).toFixed(1)}`).join('');
+  const sideY = (h: number) => sideH - 8 - h * 2.0;
+  const topY = (l: number) => sideH + 14 + topH / 2 + l * 1.6;
+  const lines: string[] = [];
+  for (const [club, col] of [['dr', 'var(--gold)'], ['7i', 'var(--accent2)']] as const) {
+    const g = styleFlight('classic', club), f = styleFlight(style, club);
+    lines.push(`<path d="${path(g.side, sideY)}" class="ghost"/>`, `<path d="${path(f.side, sideY)}" stroke="${col}"/>`);
+    lines.push(`<path d="${path(g.top, topY)}" class="ghost"/>`, `<path d="${path(f.top, topY)}" stroke="${col}"/>`);
+  }
+  const grid = [100, 200, 300].map((d) => `<line x1="${sx(d)}" x2="${sx(d)}" y1="4" y2="${sideH + 14 + topH}" class="g"/><text x="${sx(d) + 3}" y="${sideH + 10}">${d}</text>`).join('');
+  return `<svg class="flight-chart" viewBox="0 0 ${W} ${sideH + topH + 20}">
+    ${grid}<line x1="${pad}" x2="${W - pad}" y1="${sideY(0)}" y2="${sideY(0)}" class="g"/>
+    <line x1="${pad}" x2="${W - pad}" y1="${topY(0)}" y2="${topY(0)}" class="g dash"/>
+    <text x="${pad}" y="12" class="lbl">SIDE VIEW</text><text x="${pad}" y="${sideH + 26}" class="lbl">FROM ABOVE</text>
+    ${lines.join('')}</svg>`;
+}
+
 export class Menus {
   private root: HTMLElement;
   private screen: HTMLElement | null = null;
   private selCourse = save.settings.courseId;
   private selDiff: Difficulty = save.settings.difficulty;
+  private selStyle: SwingStyleId = save.swingStyle;
+  private selFormat: Format = save.settings.format;
+  private selHoles: HoleSet = save.settings.holes;
   /** Last input came from the keyboard: new screens then focus their default item. */
   private kbd = false;
   /** Pause-menu context: Esc belongs to the round (toggles pause), not to our Back buttons. */
@@ -302,7 +357,7 @@ export class Menus {
     const el = h('div', { class: 'screen menu-main' });
     const brand = h('div', { class: 'mm-brand rise' });
     brand.innerHTML = `${crest()}<div><div class="wordmark"><span>Fairway</span><span class="w2">Legends</span></div>
-      <div class="mm-tagline">Match Play<i></i>9 Holes<i></i>You vs The Tour</div></div>`;
+      <div class="mm-tagline">Match · Stroke · Skins<i></i>9 or 18 Holes<i></i>You vs The Tour</div></div>`;
     const col = h('div', { class: 'mm-col' });
     const go = (key: string, fn: () => void) => () => {
       this.mainFocus = key;
@@ -315,7 +370,7 @@ export class Menus {
 
     const play = auto(h('button', { class: 'mm-play rise', style: '--i:1', 'data-k': 'play' }));
     play.innerHTML = `<span class="k">1v1 Match Play</span><span class="t">Play Match</span>
-      <span class="d">Choose a course and difficulty, then take on the Tour.</span><span class="go">${ICON.chevron}</span>`;
+      <span class="d">Pick a course, holes, format and swing, then take on the Tour.</span><span class="go">${ICON.chevron}</span>`;
     play.onclick = go('play', () => this.showPlay());
 
     // quick start on the last course with the saved difficulty
@@ -325,13 +380,15 @@ export class Menus {
     const art = h('span', { class: 'art' });
     art.append(courseArt(course));
     const info = h('span', { class: 'info' });
-    info.innerHTML = `<span class="k">Quick Play · ${DIFF_INFO[diff].name}</span><span class="nm">${esc(course.name)}</span>
-      <span class="meta"><span>Par <b>${coursePar(course)}</b></span><span><b>${courseYards(course).toLocaleString()}</b> yds</span><span>Wind <b>${course.windMin}-${course.windMax}</b></span></span>
+    const quick = courseForSet(course, save.settings.holes).course;
+    const qFmt = FORMATS.find((f) => f.id === save.settings.format)?.name ?? '';
+    info.innerHTML = `<span class="k">Quick Play · ${DIFF_INFO[diff].name} · ${qFmt}</span><span class="nm">${esc(course.name)}</span>
+      <span class="meta"><span>Par <b>${coursePar(quick)}</b></span><span><b>${courseYards(quick).toLocaleString()}</b> yds</span><span>Wind <b>${course.windMin}-${course.windMax}</b></span></span>
       ${save.best[course.id] ? `<span class="best">${ICON.trophy}Best: ${esc(save.best[course.id])}</span>` : `<span class="loc">${esc(course.location)}</span>`}`;
     const tee = h('span', { class: 'tee' });
     tee.innerHTML = `<span>Tee Off</span>${ICON.play}`;
     feat.append(art, info, tee);
-    feat.onclick = go('quick', () => this.hooks.startMatch(course.id, diff));
+    feat.onclick = go('quick', () => this.hooks.startMatch({ courseId: course.id, difficulty: diff, format: save.settings.format, holes: save.settings.holes }));
 
     const tiles = h('div', { class: 'mm-tiles' });
     const tile = (i: number, key: string, icon: string, title: string, desc: string, fn: () => void, badge = '') => {
@@ -341,7 +398,11 @@ export class Menus {
       tiles.append(x);
     };
     const textSize = { normal: 'Normal', large: 'Large', xl: 'Extra large' }[save.settings.textSize];
+    const nextEv = CAREER[Math.min(save.career.stage, CAREER.length - 1)];
+    tile(3, 'career', ICON.trophy, 'Career', save.career.stage >= CAREER.length ? 'Champion! Replay any event' : `Next: ${nextEv.title}`, () => this.showCareer(), `${Math.min(save.career.stage, CAREER.length)}/${CAREER.length}`);
+    tile(3, 'practice', ICON.play, 'Practice', 'No opponent, no pressure', () => this.showPlay(true));
     tile(3, 'golfer', ICON.golfer, 'My Golfer', 'Customize your look', () => this.showEditor());
+    tile(3, 'swing', ICON.play, 'Swing Style', `${swingStyleById(save.swingStyle).name} · watch them all`, () => this.showSwing());
     tile(4, 'bag', ICON.bag, 'Golf Bag', `${TIERS[Math.round(bagTier())].name} clubs · upgrade`, () => this.showShop(), save.xp > 0 ? `${save.xp.toLocaleString()} XP` : '');
     tile(5, 'settings', ICON.sliders, 'Settings', `${save.settings.swingMode === 'stick' ? 'Swing Stick' : '3-Click'} · ${textSize} text`, () => this.showSettings());
     tile(6, 'help', ICON.pad, 'How to Play', 'Controls & match rules', () => this.showHelp());
@@ -355,19 +416,49 @@ export class Menus {
 
   // ---------------------------------------------------------------- match setup
 
-  showPlay() {
+  showPlay(practice = false) {
     this.hooks.showroom('menu');
     const el = h('div', { class: 'screen page setup' });
-    const head = this.pageHead('Play', 'Match Setup', 'Pick a course and difficulty. Good swings, holes won and birdies earn XP. Winning the match earns the most.', () => this.showMain());
+    const head = practice
+      ? this.pageHead('Practice', 'Practice Round', 'No opponent and no score to protect. Play any hole as often as you like: N skips to the next hole, B drops a ball on the green to practise putting.', () => this.showMain())
+      : this.pageHead('Play', 'Match Setup', 'Pick a course, the holes, a format and difficulty. Good swings, holes won and birdies earn XP. Winning the match earns the most.', () => this.showMain());
+    const sets = h('div', { class: 'chips seg wide' });
+    const formats = h('div', { class: 'diffs formats' });
     const grid = h('div', { class: 'courses' });
     const diffs = h('div', { class: 'diffs' });
+    const styles = h('div', { class: 'diffs styles' });
     const summary = h('div', { class: 'summary' });
     const refresh = () => {
       for (const k of grid.children) k.classList.toggle('sel', (k as HTMLElement).dataset.id === this.selCourse);
       for (const k of diffs.children) k.classList.toggle('sel', (k as HTMLElement).dataset.id === this.selDiff);
+      for (const k of styles.children) k.classList.toggle('sel', (k as HTMLElement).dataset.id === this.selStyle);
+      for (const k of sets.children) k.classList.toggle('sel', (k as HTMLElement).dataset.id === this.selHoles);
+      for (const k of formats.children) k.classList.toggle('sel', (k as HTMLElement).dataset.id === this.selFormat);
       const c = courseById(this.selCourse);
-      summary.innerHTML = `<span class="kicker">Your match</span><b>${esc(c.name)}</b><span>${DIFF_INFO[this.selDiff].name} · 9 holes · match play</span>`;
+      const sub = courseForSet(c, this.selHoles).course;
+      const fmt = FORMATS.find((f) => f.id === this.selFormat)!;
+      summary.innerHTML = practice
+        ? `<span class="kicker">Practice</span><b>${esc(c.name)}</b><span>All 18 holes · ${esc(swingStyleById(this.selStyle).name)}</span>`
+        : `<span class="kicker">Your match</span><b>${esc(c.name)}</b><span>${DIFF_INFO[this.selDiff].name} · ${HOLE_SETS.find((x) => x.id === this.selHoles)!.name} (par ${coursePar(sub)}) · ${fmt.name} · ${esc(swingStyleById(this.selStyle).name)}</span>`;
     };
+    for (const hs of HOLE_SETS) {
+      const x = h('div', { class: 'chip nav', tabindex: '0', role: 'button', 'data-id': hs.id }, `${hs.name}`);
+      x.title = hs.desc;
+      x.onclick = () => {
+        this.selHoles = hs.id;
+        refresh();
+      };
+      sets.append(x);
+    }
+    for (const f of FORMATS) {
+      const x = h('div', { class: 'diff nav', tabindex: '0', role: 'button', 'data-id': f.id });
+      x.innerHTML = `<div class="dh"><h4>${esc(f.name)}</h4></div><p>${esc(f.desc)}</p>`;
+      x.onclick = () => {
+        this.selFormat = f.id;
+        refresh();
+      };
+      formats.append(x);
+    }
     for (const c of COURSES) {
       const card = h('div', { class: 'card nav', tabindex: '0', role: 'button', 'data-id': c.id, 'data-k': `course:${c.id}` });
       if (c.id === this.selCourse) card.dataset.autofocus = '';
@@ -394,21 +485,129 @@ export class Menus {
       };
       diffs.append(x);
     }
+    for (const st of SWING_STYLES) {
+      const x = h('div', { class: 'diff style-card nav', tabindex: '0', role: 'button', 'data-id': st.id });
+      const bar = (label: string, v: number) => `<div class="sbar"><span>${label}</span>${pips(5, v)}</div>`;
+      x.innerHTML = `<div class="dh"><h4>${esc(st.name)}</h4></div><div class="tag-line">${esc(st.tagline)}</div><p>${esc(st.desc)}</p>
+        <div class="sbars">${bar('Distance', st.bars.distance)}${bar('Accuracy', st.bars.accuracy)}${bar('Short game', st.bars.control)}${bar('Forgiveness', st.bars.forgiveness)}</div>
+        <div class="pros">Swings like <b>${esc(st.pros)}</b></div>`;
+      x.onclick = () => {
+        this.selStyle = st.id;
+        save.swingStyle = st.id;
+        persist();
+        refresh();
+      };
+      styles.append(x);
+    }
     const bar = h('div', { class: 'action-bar' });
     const bag = h('button', { class: 'btn' });
     bag.innerHTML = `${ICON.bag}<span>Check my bag</span>`;
     bag.onclick = () => this.showShop(() => this.showPlay());
     const go = h('button', { class: 'btn primary big' });
-    go.innerHTML = `<span>Tee Off</span>${ICON.play}`;
+    go.innerHTML = `<span>${practice ? 'Start Practice' : 'Tee Off'}</span>${ICON.play}`;
     go.onclick = () => {
       save.settings.courseId = this.selCourse;
-      save.settings.difficulty = this.selDiff;
+      if (!practice) {
+        save.settings.difficulty = this.selDiff;
+        save.settings.format = this.selFormat;
+        save.settings.holes = this.selHoles;
+      }
       persist();
-      this.hooks.startMatch(this.selCourse, this.selDiff);
+      this.hooks.startMatch({ courseId: this.selCourse, difficulty: practice ? save.settings.difficulty : this.selDiff, format: this.selFormat, holes: this.selHoles, practice });
     };
     bar.append(summary, bag, go);
     refresh();
-    el.append(head, this.sectionTitle(1, 'Choose your course'), grid, this.sectionTitle(2, 'Difficulty'), diffs, bar);
+    const watch = h('button', { class: 'btn watch-swings' });
+    watch.innerHTML = `${ICON.play}<span>Watch the swings</span>`;
+    watch.onclick = () => this.showSwing(() => this.showPlay(practice));
+    const styleHead = (n: number) => {
+      const t = this.sectionTitle(n, 'Swing style');
+      t.append(watch);
+      return t;
+    };
+    if (practice) el.append(head, this.sectionTitle(1, 'Choose your course'), grid, styleHead(2), styles, bar);
+    else el.append(head, this.sectionTitle(1, 'Choose your course'), grid, this.sectionTitle(2, 'Holes'), sets, this.sectionTitle(3, 'Format'), formats, this.sectionTitle(4, 'Difficulty'), diffs, styleHead(5), styles, bar);
+    this.set(el);
+  }
+
+  // ---------------------------------------------------------------- swing styles
+
+  /** Pick a swing style: the golfer demonstrates each one, with its ball flights charted. */
+  showSwing(onBack?: () => void) {
+    this.hooks.showroom('swing');
+    const back = () => {
+      this.hooks.swingDemo(null);
+      if (onBack) onBack();
+      else this.showMain();
+    };
+    const el = h('div', { class: 'screen editor swing-screen' });
+    const side = h('div', { class: 'side' });
+    const body = h('div', { class: 'ed-body' });
+    const list = h('div', { class: 'swing-list' });
+    const detail = h('div', { class: 'swing-detail' });
+    const render = () => {
+      const st = swingStyleById(this.selStyle);
+      for (const k of list.children) k.classList.toggle('sel', (k as HTMLElement).dataset.id === st.id);
+      const dr = styleFlight(st.id, 'dr'), i7 = styleFlight(st.id, '7i');
+      const bar = (label: string, v: number) => `<div class="sbar"><span>${label}</span>${pips(5, v)}</div>`;
+      detail.innerHTML = `<div class="sd-head"><h3>${esc(st.name)}</h3><div class="tag-line">${esc(st.tagline)}</div></div>
+        <div class="pros">Swings like <b>${esc(st.pros)}</b></div>
+        <div class="chart-title">Ball flight <span><i class="k dr"></i>Driver ${Math.round(dr.carry)} carry · ${Math.round(dr.total)} total <i class="k i7"></i>7-iron ${Math.round(i7.carry)}</span></div>
+        ${flightChart(st.id)}
+        <div class="chart-note">Dashed: Classic Tour, for comparison. Perfect strike, no wind.</div>
+        <div class="sbars">${bar('Distance', st.bars.distance)}${bar('Accuracy', st.bars.accuracy)}${bar('Short game', st.bars.control)}${bar('Forgiveness', st.bars.forgiveness)}</div>
+        <p>${esc(st.desc)}</p>`;
+      this.hooks.swingDemo(st);
+    };
+    for (const st of SWING_STYLES) {
+      const x = h('div', { class: 'swing-row nav', tabindex: '0', role: 'button', 'data-id': st.id });
+      if (st.id === this.selStyle) x.dataset.autofocus = '';
+      x.innerHTML = `<b>${esc(st.name)}</b><span>${esc(st.pros)}</span>`;
+      x.onclick = () => {
+        this.selStyle = st.id;
+        save.swingStyle = st.id;
+        persist();
+        render();
+      };
+      list.append(x);
+    }
+    body.append(list, detail);
+    const foot = h('div', { class: 'ed-foot' });
+    const done = h('button', { class: 'btn primary' });
+    done.innerHTML = `${ICON.check}<span>Use this swing</span>`;
+    done.onclick = back;
+    foot.append(done);
+    side.append(this.pageHead('Your swing', 'Swing Style', 'Each style plays differently, like the tour pros known for it. Your golfer shows the swing.', back), body, foot);
+    el.append(side);
+    this.set(el);
+    render();
+  }
+
+  // ---------------------------------------------------------------- career
+
+  showCareer() {
+    this.hooks.showroom('menu');
+    const el = h('div', { class: 'screen page career' });
+    const done = Math.min(save.career.stage, CAREER.length);
+    el.append(this.pageHead('Career', 'The Road to Legend', `Win each event to unlock the next, from the club championship to the Legends Final. Every win pays an XP purse on top of your match XP. ${done} of ${CAREER.length} won.`, () => this.showMain()));
+    const list = h('div', { class: 'career-list' });
+    CAREER.forEach((ev, i) => {
+      const state = i < save.career.stage ? 'won' : i === save.career.stage ? 'next' : 'locked';
+      const c = courseById(ev.courseId);
+      const pers = PERSONALITIES.find((p) => p.id === ev.personality)!;
+      const fmt = FORMATS.find((f) => f.id === ev.format)!.name;
+      const set = HOLE_SETS.find((x) => x.id === ev.holes)!.name;
+      const x = h('div', { class: `career-ev ${state} ${state !== 'locked' ? 'nav' : ''}`, tabindex: state !== 'locked' ? '0' : '-1', role: 'button' });
+      if (state === 'next') x.dataset.autofocus = '';
+      x.innerHTML = `<div class="n">${String(i + 1).padStart(2, '0')}</div>
+        <div class="body"><h3>${esc(ev.title)}</h3><div class="st">${esc(ev.stage)}</div>
+          <div class="meta"><span>${esc(c.name)}</span><span>${set}</span><span>${fmt}</span><span>${DIFF_INFO[ev.difficulty].name}</span></div>
+          <div class="opp">Opponent: <b>${esc(pers.label)}</b> — ${esc(pers.blurb)}</div></div>
+        <div class="right"><div class="purse">${ev.purse.toLocaleString()} XP</div><div class="badge">${state === 'won' ? `${ICON.check} Won` : state === 'next' ? `Play ${ICON.play}` : 'Locked'}</div></div>`;
+      if (state !== 'locked') x.onclick = () => this.hooks.startMatch({ courseId: ev.courseId, difficulty: ev.difficulty, format: ev.format, holes: ev.holes, careerEvent: ev.id });
+      list.append(x);
+    });
+    el.append(list);
     this.set(el);
   }
 
@@ -615,8 +814,37 @@ export class Menus {
       };
       row('Swing control', 'Swing Stick: hold, pull the mouse down, push up (tempo + straightness). 3-Click: classic power/accuracy meter.', [['stick', 'Swing Stick'], ['threeClick', '3-Click']], () => save.settings.swingMode, (v) => (save.settings.swingMode = v as 'stick' | 'threeClick'));
       row('Gimmes', 'Concede short putts for both players (4 ft on Easy, 3 ft on Medium, 2½ ft on Hard).', [['on', 'On'], ['off', 'Off']], () => (save.settings.gimmes ? 'on' : 'off'), (v) => (save.settings.gimmes = v === 'on'));
-      row('Sound', 'Synthesized strike, crowd and ambience sounds.', [['on', 'On'], ['off', 'Off']], () => (save.settings.sound ? 'on' : 'off'), (v) => (save.settings.sound = v === 'on'));
+      row('Weather', 'Random: each round brings its own weather (wind, overcast skies or rain that softens the greens). Always fair: sunshine every round.', [['random', 'Random'], ['fair', 'Always fair']], () => save.settings.weather, (v) => (save.settings.weather = v as 'random' | 'fair'));
+      row('Sound', 'Synthesized strike, crowd and ambience sounds, and music.', [['on', 'On'], ['off', 'Off']], () => (save.settings.sound ? 'on' : 'off'), (v) => (save.settings.sound = v === 'on'));
+      const vol = (title: string, desc: string, key: 'volMaster' | 'volEffects' | 'volAmbience' | 'volMusic') => {
+        const r = h('div', { class: 'toggle-row' });
+        const l = h('div', {});
+        l.innerHTML = `<div class="tt">${title}</div><div class="d">${desc}</div>`;
+        const wrap = h('div', { class: 'vol' });
+        const input = h('input', { type: 'range', min: '0', max: '100', step: '5', class: 'nav' });
+        input.value = String(Math.round(save.settings[key] * 100));
+        const out = h('b', {}, `${input.value}%`);
+        const fill = () => input.style.setProperty('--p', `${input.value}%`);
+        fill();
+        input.oninput = () => {
+          save.settings[key] = Number(input.value) / 100;
+          out.textContent = `${input.value}%`;
+          fill();
+          persist();
+          this.hooks.settingsChanged();
+        };
+        wrap.append(input, out);
+        r.append(l, wrap);
+        list.append(r);
+      };
+      vol('Master volume', 'Everything at once.', 'volMaster');
+      vol('Effects', 'Club strikes, the ball, the crowd.', 'volEffects');
+      vol('Ambience', 'Wind, surf, birds, rain and the course around you.', 'volAmbience');
+      vol('Music', 'Background music in the menus (and on the course, if turned on below).', 'volMusic');
+      row('Music during rounds', 'Most golf games keep the course quiet so you hear the strike and the crowd; turn this on for soft music while you play.', [['off', 'Off'], ['on', 'On']], () => (save.settings.musicInRound ? 'on' : 'off'), (v) => (save.settings.musicInRound = v === 'on'));
+      row('Wind strength', 'How hard the wind blows in rounds. Light takes the edge off; Full is the real thing.', [['calm', 'Calm'], ['light', 'Light'], ['full', 'Full']], () => save.settings.wind, (v) => (save.settings.wind = v as 'calm' | 'light' | 'full'));
       row('Text size', 'Size of all on-screen text in the menus and HUD.', [['normal', 'Normal'], ['large', 'Large'], ['xl', 'Extra Large']], () => save.settings.textSize, (v) => (save.settings.textSize = v as TextSize));
+      row('Graphics priority', 'The game adjusts resolution and effects on the fly. Smooth keeps the frame rate high (about 60 fps); Balanced aims for about 45; Best looking keeps full detail down to about 30 fps.', [['smooth', 'Smooth'], ['balanced', 'Balanced'], ['quality', 'Best looking']], () => save.settings.gfxPriority, (v) => (save.settings.gfxPriority = v as 'smooth' | 'balanced' | 'quality'));
       row('Graphics quality', 'Lower settings reduce shadow resolution, terrain detail and grass density.', [['high', 'High'], ['medium', 'Medium'], ['low', 'Low']], () => save.settings.quality, (v) => (save.settings.quality = v as 'high' | 'medium' | 'low'));
       const reset = h('button', { class: 'btn small danger' }, 'Reset all progress');
       let armed = false;
@@ -644,7 +872,7 @@ export class Menus {
 
   showHelp(onBack?: () => void) {
     const el = h('div', { class: 'screen page guide' });
-    const head = this.pageHead('Guide', 'How to Play', 'Match play: win holes, not strokes. Lowest score on a hole wins it; the match ends when one player is up by more holes than remain.', () => (onBack ? onBack() : this.showMain()));
+    const head = this.pageHead('Guide', 'How to Play', 'Play match play, stroke play or skins over 9 or 18 holes, work through the Career ladder, or warm up in Practice.', () => (onBack ? onBack() : this.showMain()));
     const grid = h('div', { class: 'guide-grid' });
     const controls = h('div', { class: 'm-card' });
     const k = (...ks: string[]) => ks.map((x) => `<span class="key">${x}</span>`).join('');
@@ -658,16 +886,25 @@ export class Menus {
       [k('V'), 'Target camera: look at the landing area.'],
       [k('G'), 'Green read: elevated view with the slope grid. Dots flow downhill; colour shows steepness.'],
       [k('R'), 'Reset aim and club suggestion.'],
+      [k('C'), 'Spin: Normal, Backspin (higher, stops fast) or Topspin (lower, runs out).'],
+      [k('P'), 'Replay the last shot (yours or your opponent\'s).'],
+      [k('Enter'), "Skip the opponent's shot."],
+      [k('N', 'B'), 'Practice only: next hole · drop a ball on the green for putting practice.'],
       [k('Space'), 'Skip flyover · hold to fast-forward ball roll.'],
       [k('Tab'), 'Scorecard.'],
       [k('Esc'), 'Pause menu.'],
     ];
     controls.innerHTML = `<div class="card-title">Controls</div><div class="controls-table">${rows.map(([keys, d]) => `<span>${keys}</span><span>${d}</span>`).join('')}</div>`;
     const rules = h('div', { class: 'm-card' });
-    rules.innerHTML = `<div class="card-title">Match play</div><ul class="rules">
-        <li>Win holes, not strokes: the lowest score on a hole wins it, and a tie halves it.</li>
-        <li>The match ends as soon as one player is up by more holes than remain, for example <b>3&amp;2</b>.</li>
-        <li>Short putts inside the gimme range are conceded for both players (see Settings).</li>
+    rules.innerHTML = `<div class="card-title">Formats</div><ul class="rules">
+        <li><b>Match play:</b> win holes, not strokes. The lowest score on a hole wins it, a tie halves it, and the match ends once a lead is out of reach, for example <b>3&amp;2</b>.</li>
+        <li><b>Stroke play:</b> both players hole out on every hole; the lowest total wins.</li>
+        <li><b>Skins:</b> each hole is worth a skin. Tie a hole and its skin carries over, so the next hole is worth more.</li>
+        <li>Short putts inside the gimme range are conceded for both players (see Settings). On Easy, your first ball in water or out of bounds on each hole is a free <b>mulligan</b>.</li>
+      </ul><div class="card-title">Swing styles &amp; opponents</div><ul class="rules">
+        <li>Your <b>swing style</b> (Match Setup) changes distance, accuracy, ball flight and how forgiving the timing is.</li>
+        <li>Opponents have personalities (Bomber, Grinder, Magician…) built on the same styles.</li>
+        <li><b>Weather</b> varies by round: wind, overcast skies, or rain that softens greens and slows the ball.</li>
       </ul><div class="card-title">Earning XP</div><ul class="rules">
         <li>Good swings, holes won, birdies and better all earn XP. Winning the match earns the most, and harder difficulties pay more.</li>
         <li>Spend XP in the <b>Golf Bag</b> to upgrade clubs: more distance, tighter dispersion and more spin.</li>
@@ -707,7 +944,7 @@ export class Menus {
 
   // ---------------------------------------------------------------- results
 
-  showResults(m: MatchState, course: CourseDef, diff: Difficulty, opponent: string, onDone: () => void) {
+  showResults(m: MatchState, course: CourseDef, diff: Difficulty, opponent: string, options: MatchOptions, onDone: () => void) {
     this.hooks.showroom('menu');
     this.inMatch = false;
     const xp = computeXp(m, diff);
@@ -728,6 +965,22 @@ export class Menus {
       }
     }
     if (res === 'won') save.best[course.id] = `${diff}: ${m.statusText()}`;
+    // career: winning the current event pays its purse and unlocks the next one
+    const ev = careerEvent(options.careerEvent);
+    let careerNote = '';
+    if (ev) {
+      const idx = CAREER.indexOf(ev);
+      if (res === 'won' && idx === save.career.stage) {
+        save.career.stage++;
+        xp.lines.push({ label: `${ev.title} purse`, xp: ev.purse });
+        xp.total += ev.purse;
+        save.xp += ev.purse;
+        save.xpEarned += ev.purse;
+        const next = CAREER[save.career.stage];
+        careerNote = next ? `Career: <b>${esc(ev.title)}</b> won! Next up: <b>${esc(next.title)}</b>` : `Career complete: you are a <b>Fairway Legend</b>!`;
+      } else if (res === 'won') careerNote = `Career: ${esc(ev.title)} won again.`;
+      else careerNote = `Career: ${esc(ev.title)} — win it to move on.`;
+    }
     persist();
     const el = h('div', { class: 'screen results' });
     const sheet = h('div', { class: 'sheet panel' });
@@ -735,7 +988,7 @@ export class Menus {
     const holes = m.holes;
     sheet.innerHTML = `<div class="res-hero ${res}">
         <div class="kicker">${esc(course.name)} · ${DIFF_INFO[diff].name} · vs ${esc(opponent)}</div>
-        <h1 class="${res}">${title}</h1><div class="res-status">${esc(m.statusText())}</div></div>
+        <h1 class="${res}">${title}</h1><div class="res-status">${esc(m.statusText())}</div>${careerNote ? `<div class="res-career">${careerNote}</div>` : ''}</div>
       <div class="res-body">
         <div><div class="card-title">XP earned</div>
           <div class="xp-lines">${xp.lines.map((l) => `<div><span>${esc(l.label)}</span><b>+${l.xp}</b></div>`).join('') || '<div><span>No XP this time — win holes to earn some.</span></div>'}
@@ -745,7 +998,7 @@ export class Menus {
           <div class="res-bal">XP to spend <b>${save.xp.toLocaleString()}</b></div></div>
       </div>
       <div class="res-card"><table class="res-table">
-        <tr>${['Hole', ...holes.map((_, i) => String(i + 1))].map((x) => `<th>${x}</th>`).join('')}</tr>
+        <tr>${['Hole', ...holes.map((_, i) => String(i + m.firstHole))].map((x) => `<th>${x}</th>`).join('')}</tr>
         <tr class="par"><td>Par</td>${holes.map((hr) => `<td>${hr.par}</td>`).join('')}</tr>
         <tr><td>${esc(save.name)}</td>${holes.map((hr) => `<td class="${hr.winner === 'player' ? 'w' : ''}">${hr.player ?? '-'}</td>`).join('')}</tr>
         <tr><td>${esc(opponent)}</td>${holes.map((hr) => `<td class="${hr.winner === 'ai' ? 'l' : ''}">${hr.ai ?? '-'}</td>`).join('')}</tr>
@@ -756,7 +1009,7 @@ export class Menus {
     up.onclick = () => this.showShop(() => onDone());
     const again = h('button', { class: 'btn' });
     again.innerHTML = `${ICON.again}<span>Play again</span>`;
-    again.onclick = () => this.hooks.startMatch(course.id, diff);
+    again.onclick = () => this.hooks.startMatch(options);
     const menu = h('button', { class: 'btn' });
     menu.innerHTML = `${ICON.home}<span>Main menu</span>`;
     menu.onclick = () => onDone();

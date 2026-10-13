@@ -5,6 +5,7 @@
 //  - 3-Click: click to start the power bar, click to set power, click again in the impact zone.
 import { clamp } from '../core/rng';
 import type { Difficulty, SwingMode } from '../core/save';
+import { SWING_STYLES, type SwingStyle } from '../data/swingStyles';
 import type { SwingResult } from './shotModel';
 
 export interface SwingHooks {
@@ -47,6 +48,8 @@ export class SwingInput {
   /** Target power marker shown on the meter. */
   target = 1;
   putting = false;
+  /** Swing style: shifts and widens/narrows the tempo windows. */
+  style: SwingStyle = SWING_STYLES[0];
   private hooks: SwingHooks;
   private el: HTMLElement;
   // stick state
@@ -194,13 +197,20 @@ export class SwingInput {
 
   /** Turns raw stick measurements into a strike. */
   evaluate(power: number, tempoSec: number, pathDeg: number, backDrift: number): SwingResult {
-    const [lo, hi] = TEMPO_WINDOW[this.difficulty];
+    // a style moves the ideal push speed (tempoSpeed) and scales how wide the windows are
+    const st = this.style;
+    const win = ([a, b]: [number, number]): [number, number] => {
+      const mid = ((a + b) / 2) * st.tempoSpeed;
+      const half = ((b - a) / 2) * st.tempoWindow;
+      return [Math.max(0.02, mid - half), mid + half];
+    };
+    const [lo, hi] = win(TEMPO_WINDOW[this.difficulty]);
     const tol = PATH_TOL[this.difficulty];
     let tempoErr = 0; // + fast, - slow
     if (tempoSec < lo) tempoErr = (lo - tempoSec) / lo;
     else if (tempoSec > hi) tempoErr = -(tempoSec - hi) / hi;
     tempoErr = clamp(tempoErr, -1.5, 1.5);
-    const [pLo, pHi] = PERFECT_TEMPO[this.difficulty];
+    const [pLo, pHi] = win(PERFECT_TEMPO[this.difficulty]);
     let tempo: SwingResult['tempo'] = 'Good';
     if (tempoErr === 0 && tempoSec >= pLo && tempoSec <= pHi) tempo = 'Perfect';
     else if (tempoErr > 0.5) tempo = 'Rushed';

@@ -110,7 +110,7 @@ export class SkyEnvironment {
    * Applies a sky. `azimuth` rotates the sky about the vertical so the sun comes from a
    * pleasing direction relative to the hole's line of play.
    */
-  async apply(name: string, opts: { envIntensity: number; sunIntensity: number; playDir: THREE.Vector2; sunOffsetDeg: number }) {
+  async apply(name: string, opts: { envIntensity: number; sunIntensity: number; playDir: THREE.Vector2; sunOffsetDeg: number; minSunY?: number; sunColor?: THREE.Color }) {
     const info = await this.load(name);
     const s = this.scene;
     s.background = info.texture;
@@ -127,8 +127,9 @@ export class SkyEnvironment {
     s.environmentRotation.set(0, theta, 0);
     this.sunDirWorld.copy(info.sunDir).applyAxisAngle(new THREE.Vector3(0, 1, 0), theta);
     // keep the sun high enough for readable shadows
-    if (this.sunDirWorld.y < 0.32) {
-      this.sunDirWorld.y = 0.32;
+    const minY = opts.minSunY ?? 0.32;
+    if (this.sunDirWorld.y < minY) {
+      this.sunDirWorld.y = minY;
       this.sunDirWorld.normalize();
     }
     this.sun.intensity = opts.sunIntensity;
@@ -140,7 +141,8 @@ export class SkyEnvironment {
     else if (s.fog instanceof THREE.FogExp2) s.fog.color.copy(this.horizon);
     else s.fog = new THREE.FogExp2(this.horizon.getHex(), 0.00028);
     // tint the sun slightly by the sky colour temperature
-    this.sun.color.setRGB(1, 0.96, 0.9);
+    if (opts.sunColor) this.sun.color.copy(opts.sunColor);
+    else this.sun.color.setRGB(1, 0.96, 0.9);
   }
 
   /** Centre the shadow frustum on a point of interest. */

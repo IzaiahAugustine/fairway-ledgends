@@ -34,7 +34,7 @@ function averageColor(img: HTMLImageElement | ImageBitmap): THREE.Color {
   return new THREE.Color(r / n, g / n, b / n);
 }
 
-export function loadTexture(name: string, srgb = true, maxAniso = 8): Promise<TexInfo> {
+export function loadTexture(name: string, srgb = true, maxAniso = 16): Promise<TexInfo> {
   const key = `${name}|${srgb}`;
   let p = texCache.get(key);
   if (!p) {

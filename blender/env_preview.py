@@ -17,7 +17,10 @@ PROP_ROW_Y = -60.0
 # (x, y, z) offsets in the props row; the cup is lifted so its liner is visible above the ground
 PROP_LAYOUT = [("Flagstick", (0.0, 0.0, 0.0)), ("Flag", (0.0, 0.0, 0.0)), ("Cup", (0.55, -0.55, 0.1025)),
                ("Tee", (0.85, -0.65, 0.0)), ("TeeMarker", (1.1, -0.45, 0.0)), ("GolfBag", (1.9, 0.1, 0.0)),
-               ("Bench", (3.6, 0.6, 0.0)), ("Rock_A", (-2.3, 0.8, 0.0)), ("Rock_B", (-1.1, -0.2, 0.0))]
+               ("Bench", (3.6, 0.6, 0.0)), ("Rock_A", (-2.3, 0.8, 0.0)), ("Rock_B", (-1.1, -0.2, 0.0)),
+               ("Divot", (-0.2, -0.9, 0.0)), ("DivotChunk", (-0.05, -0.2, 0.0)),
+               ("Spectator_A", (-3.6, 0.4, 0.0)), ("Spectator_B", (-4.3, 0.6, 0.0)), ("Spectator_C", (-5.0, 0.4, 0.0)),
+               ("Spectator_Lo", (-5.7, 0.4, 0.0)), ("Grandstand", (-14.0, 4.0, 0.0))]
 
 
 def look_at(obj, target):
@@ -133,6 +136,9 @@ def build_preview_scene(main):
         "props": ((0.7, PROP_ROW_Y - 7.0, 2.0), (0.7, PROP_ROW_Y + 0.2, 0.6), 30),
         "props_small": ((0.80, PROP_ROW_Y - 1.25, 0.78), (0.82, PROP_ROW_Y - 0.55, 0.06), 45),
         "bag": ((2.6, PROP_ROW_Y - 1.6, 1.15), (1.9, PROP_ROW_Y + 0.15, 0.6), 50),
+        "stand": ((-9.0, PROP_ROW_Y - 9.0, 3.2), (-14.0, PROP_ROW_Y + 6.0, 1.6), 30),
+        "crowd": ((-4.3, PROP_ROW_Y - 3.4, 1.3), (-4.3, PROP_ROW_Y + 0.5, 0.95), 45),
+        "divot": ((-0.2, PROP_ROW_Y - 1.45, 0.5), (-0.2, PROP_ROW_Y - 0.6, 0.0), 50),
         "cup_top": ((0.55, PROP_ROW_Y - 0.62, 0.62), (0.55, PROP_ROW_Y - 0.55, 0.0), 50),
         "oak": ((-2.0, -24.0, 2.5), (0.0, 0.0, 7.0), 32),
         "trunk": ((-1.2, -4.2, 1.5), (0.0, 0.0, 2.2), 35),
@@ -209,3 +215,9 @@ def render_all(out_dir, args=()):
         _render(prev, "props_small", os.path.join(out_dir, "env_props_small.png"), (1600, 900))
         _render(prev, "bag", os.path.join(out_dir, "env_props_bag.png"), (1200, 900))
         _render(prev, "cup_top", os.path.join(out_dir, "env_props_cup.png"), (900, 900))
+    if "stand" in views:
+        _render(prev, "stand", os.path.join(out_dir, "env_props_stand.png"), (1200, 900))
+    if "crowd" in views:
+        _render(prev, "crowd", os.path.join(out_dir, "env_props_crowd.png"), (1200, 900))
+    if "props" in views or "divot" in views:
+        _render(prev, "divot", os.path.join(out_dir, "env_props_divot.png"), (1200, 900))

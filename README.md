@@ -1,6 +1,6 @@
 # Fairway Legends
 
-A 1v1 match-play golf game against an AI opponent, built with Three.js + TypeScript. The
+A 1v1 golf game against an AI opponent (match play, stroke play or skins), built with Three.js + TypeScript. The
 golfer, clubs, trees and course props are modelled, rigged and animated in Blender
 (`blender/*.py`), and the courses are lit by photographed HDRI skies with CC0 photo textures.
 
@@ -14,11 +14,26 @@ npm run build      # production build in dist/
 
 ## Features
 
-- **9-hole match play vs AI.** Win holes, not strokes. Live match status (`2 UP`, `AS`,
-  `DORMIE`), early finish (`3 & 2`), honours, gimmes, picking up, stroke-and-distance for out of
-  bounds and penalty drops for water.
-- **Four courses based on real front nines:** Shinnecock Hills, Wykagyl Country Club, Pebble Beach
-  and the Old Course at St Andrews. Real pars and yardages; terrain, hazards, green contours and
+- **Match play, stroke play or skins vs AI**, over the front 9, back 9 or all 18. Live status
+  (`2 UP`, `DORMIE`, `3 & 2`; `+1 · LEAD BY 2`; `SKINS 3-1 · 2 ON THE LINE`), honours, gimmes,
+  picking up, stroke-and-distance for out of bounds and penalty drops for water. On Easy, the first
+  ball in water or out of bounds on each hole is a free mulligan.
+- **Career mode:** eight events from the Club Championship to the Legends Final, each with a fixed
+  opponent and an XP purse; win one to unlock the next.
+- **Practice:** no opponent, play any hole as often as you like, drop a ball on the green to
+  practise putting.
+- **Swing styles:** Classic Tour, Power Bomber, Smooth Tempo, Precision Fader, Natural Draw and
+  Short-Game Wizard change distance, accuracy, launch, spin, natural curve, the timing window and
+  how the swing looks. AI opponents have personalities (Bomber, Grinder, Magician…) built on them.
+- **Weather:** fair, breezy, overcast or rain (falling rain, softer greens, slower roll); Pebble
+  Beach plays in low, warm late-afternoon light.
+- **Putting:** realistic cup capture (pace and line decide lip-outs), a real hole cut in the green
+  with the Blender cup liner, the ball dropping in, a TV-style cup camera, break readout, and ball
+  markers on the green.
+- **Divots and pitch marks** (Blender-modelled scar and flying turf), shot replay, visible ball
+  spin, spin control (backspin / topspin), crowd reactions and course ambience (surf, wind, birds).
+- **Four courses based on real 18-hole layouts:** Shinnecock Hills, Wykagyl Country Club, Pebble Beach
+  and the Old Course at St Andrews. Real pars and yardages (Wykagyl's back nine is approximate); terrain, hazards, green contours and
   tree lines are generated from per-hole hints (doglegs, elevation, ponds, burns, ocean cliffs, pot
   bunkers, fescue).
 - **Difficulty: Easy / Medium / Hard.** Changes the swing timing windows, how much of the shot and
@@ -62,6 +77,10 @@ npm run build      # production build in dist/
 | V | Target camera |
 | G | Green-read camera |
 | R | Reset aim |
+| C | Spin: Normal / Backspin / Topspin |
+| P | Replay the last shot |
+| Enter | Skip the opponent's shot |
+| N / B | Practice: next hole / putting practice |
 | Space | Skip flyover, hold to fast-forward the ball |
 | Tab | Scorecard |
 | Esc | Pause |

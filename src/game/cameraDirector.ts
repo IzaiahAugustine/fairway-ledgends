@@ -1,7 +1,7 @@
 // Broadcast-style camera work: behind-the-golfer address view, tee/landing cuts during ball
 // flight, putting follow cam, hole flyover, target view and green-read view.
 import * as THREE from 'three';
-import type { SimResult } from '../physics/ballPhysics';
+import { sampleAt, type SimResult } from '../physics/ballPhysics';
 import type { HoleField } from '../world/holeGen';
 
 export type CamMode = 'address' | 'flight' | 'putt' | 'flyover' | 'target' | 'green' | 'free';
@@ -19,6 +19,8 @@ export class CameraDirector {
   private cut = false;
   private cutTime = 0;
   private landCam = new THREE.Vector3();
+  /** Close-up at the hole for shots that go in: camera spot, what it looks at, and when to cut. */
+  private cupCam: { pos: THREE.Vector3; over: THREE.Vector3; look: THREE.Vector3; time: number; dropT: number; cut: boolean } | null = null;
   private startCam = new THREE.Vector3();
   private startLook = new THREE.Vector3();
   private startBall = new THREE.Vector3();
@@ -55,6 +57,14 @@ export class CameraDirector {
     }
     this.ground(field, this.wantPos, 0.6);
     if (snap) this.snap = true;
+  }
+
+  /** Replay a finished shot: cut straight to that shot's address view, then fly with it. */
+  startReplay(field: HoleField, r: SimResult, start: THREE.Vector3, aimX: number, aimZ: number, putting: boolean) {
+    this.setAddress(field, start, aimX, aimZ, putting);
+    this.pos.copy(this.wantPos);
+    this.look.copy(this.wantLook);
+    this.startFlight(field, r, putting);
   }
 
   /** Fixed camera (cinematics and debug views). */
@@ -110,6 +120,34 @@ export class CameraDirector {
     this.ground(field, this.landCam, 1.5);
     const flightTime = r.landingTime || r.duration;
     this.cutTime = putting || dist < 45 ? Infinity : Math.max(1.3, flightTime - 2.4);
+    this.cupCam = this.planCupCam(field, r, putting);
+  }
+
+  /**
+   * For a shot that's going in: a low TV-style camera just beyond the hole, looking back along the
+   * line the ball comes in on, so you see it roll up, catch the edge and drop.
+   */
+  private planCupCam(field: HoleField, r: SimResult, putting: boolean) {
+    if (r.outcome !== 'holed') return null;
+    const ev = r.events.find((e) => e.type === 'cup');
+    if (!ev) return null;
+    const cup = field.cup;
+    const h = field.heightAt(cup.x, cup.z);
+    // where the ball was a moment before it reached the hole -> the line it comes in on
+    const before = { x: 0, y: 0, z: 0 };
+    sampleAt(r, Math.max(0, ev.t - 0.35), before);
+    const inDir = new THREE.Vector3(cup.x - before.x, 0, cup.z - before.z);
+    if (inDir.lengthSq() < 1e-4) inDir.set(cup.x - r.samples[1], 0, cup.z - r.samples[3]);
+    inDir.normalize();
+    const side = new THREE.Vector3(-inDir.z, 0, inDir.x);
+    const pos = new THREE.Vector3(cup.x, 0, cup.z).addScaledVector(inDir, 0.95).addScaledVector(side, 0.3);
+    pos.y = field.heightAt(pos.x, pos.z) + 0.42;
+    const look = new THREE.Vector3(cup.x, h - 0.02, cup.z).addScaledVector(inDir, -0.25);
+    // after the drop the camera eases up over the hole to look down at the ball on the bottom
+    const over = new THREE.Vector3(cup.x, 0, cup.z).addScaledVector(inDir, -0.22).addScaledVector(side, 0.1);
+    over.y = h + 0.7;
+    const lead = putting ? 1.1 : 0.8;
+    return { pos, over, look, time: Math.max(putting ? 0.5 : 0.3, ev.t - lead), dropT: ev.t, cut: false };
   }
 
   startFlyover(field: HoleField, onDone: () => void) {
@@ -154,6 +192,24 @@ export class CameraDirector {
         this.onFlyoverDone = null;
         this.mode = 'free';
         cb?.();
+      }
+    } else if (this.mode === 'flight' && this.shot && this.cupCam && this.shotT + dt >= this.cupCam.time) {
+      // it's going in: hold the close-up at the hole until the next shot
+      this.shotT += dt;
+      const cc = this.cupCam;
+      if (!cc.cut) {
+        cc.cut = true;
+        this.pos.copy(cc.pos);
+        this.look.copy(cc.look);
+        this.snap = true;
+      }
+      if (this.shotT < cc.dropT + 0.25) {
+        this.wantPos.copy(cc.pos);
+        // keep the hole in frame and lean toward the ball as it comes in
+        this.wantLook.copy(cc.look).lerp(ballPos, ballPos.distanceTo(cc.look) < 3 ? 0.3 : 0.1);
+      } else {
+        this.wantPos.copy(cc.over);
+        this.wantLook.copy(ballPos);
       }
     } else if (this.mode === 'flight' && this.shot) {
       this.shotT += dt;

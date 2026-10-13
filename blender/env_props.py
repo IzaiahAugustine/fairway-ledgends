@@ -23,6 +23,9 @@ import numpy as np
 from mathutils import Vector, noise
 
 from env_mesh import MeshAccum, unit, new_empty, smoothstep, any_perp
+import env_divot
+import env_spectators
+import env_grandstand
 
 X3 = np.array([1.0, 0, 0])
 Y3 = np.array([0, 1.0, 0])
@@ -346,6 +349,11 @@ def build_props(scene, asset_collection, simple_material):
         "Rock": simple_material("Rock", (0.15, 0.14, 0.125), rough=0.9, vcol=True),
         "Wood": simple_material("Wood", (0.20, 0.115, 0.055), rough=0.7),
         "Metal": simple_material("Metal", (0.04, 0.07, 0.05), rough=0.45, metal=0.6),
+        "DivotSoil": simple_material("DivotSoil", (0.11, 0.068, 0.038), rough=0.95, vcol=True, spec=0.25),
+        "DivotGrass": simple_material("DivotGrass", (0.15, 0.27, 0.06), rough=0.85, vcol=True, double=True, spec=0.3),
+        "GrandstandSteel": simple_material("GrandstandSteel", (0.62, 0.64, 0.66), rough=0.45, metal=0.6),
+        "GrandstandSeat": simple_material("GrandstandSeat", (0.05, 0.22, 0.14), rough=0.6),
+        "GrandstandPanel": simple_material("GrandstandPanel", (0.04, 0.12, 0.08), rough=0.7),
     }
     report = {}
 
@@ -381,6 +389,12 @@ def build_props(scene, asset_collection, simple_material):
     single("Tee", tee(), "TeePeg")
     multi("GolfBag", golf_bag())
     multi("Bench", bench())
+    soil, grass = env_divot.divot()
+    multi("Divot", {"DivotSoil": soil, "DivotGrass": grass}, colors=True)
+    soil, turf = env_divot.divot_chunk()
+    multi("DivotChunk", {"DivotSoil": soil, "DivotGrass": turf}, colors=True)
+    env_spectators.build(scene, asset_collection, simple_material, report)
+    multi("Grandstand", env_grandstand.grandstand())
     for name, radii, seed, planes, ratio in (("Rock_A", (0.78, 0.62, 0.58), 5, 13, 0.32),
                                              ("Rock_B", (0.42, 0.34, 0.30), 9, 11, 0.18)):
         coll = asset_collection(scene, name)

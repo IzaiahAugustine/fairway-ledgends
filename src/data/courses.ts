@@ -1,4 +1,4 @@
-// Course catalog. Yardages and pars follow the real front nines; terrain, hazards and green
+// Course catalog. Yardages and pars follow the real courses (Wykagyl's back nine is approximate); terrain, hazards and green
 // contours are generated procedurally from these hints, so holes are "inspired by" the real ones.
 
 export type WaterKind =
@@ -91,6 +91,16 @@ export const COURSES: CourseDef[] = [
       { par: 3, yards: 189, name: 'Redan', greenBunkers: 4, greenSlope: 3.2, elev: 1.5 },
       { par: 4, yards: 439, name: 'Lowlands', bend: -8, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 2, elev: -3 },
       { par: 4, yards: 485, name: 'Ben Nevis', bend: 6, bendAt: 0.55, greenBunkers: 4, fairwayBunkers: 2, elev: 9 },
+      // back nine
+      { par: 4, yards: 415, name: 'Eastward Ho', bend: -6, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 2, elev: 4 },
+      { par: 3, yards: 159, name: 'Hill Head', greenBunkers: 4, elev: 4, greenSlope: 2.8, greenSize: 0.85 },
+      { par: 4, yards: 469, name: 'Tuckahoe', bend: 8, bendAt: 0.58, greenBunkers: 3, fairwayBunkers: 3, elev: -1 },
+      { par: 4, yards: 374, name: 'Road Side', bend: -10, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 2 },
+      { par: 4, yards: 519, name: "Thom's Elbow", bend: 12, bendAt: 0.55, greenBunkers: 2, fairwayBunkers: 3, elev: 3 },
+      { par: 4, yards: 409, name: 'Sebonac', bend: -8, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 2, elev: -2 },
+      { par: 5, yards: 616, name: 'Shinnecock', bend: 6, bendAt: 0.42, bend2: -8, bend2At: 0.76, greenBunkers: 4, fairwayBunkers: 5, elev: 2 },
+      { par: 3, yards: 180, name: 'Eden', water: ['pond-left'], greenBunkers: 3, greenSlope: 2.2 },
+      { par: 4, yards: 485, name: 'Home', bend: 6, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 2, elev: 5 },
     ],
   },
   {
@@ -124,6 +134,16 @@ export const COURSES: CourseDef[] = [
       { par: 3, yards: 171, greenBunkers: 3, elev: 2, greenSlope: 2.6 },
       { par: 4, yards: 446, bend: -12, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2, elev: -1 },
       { par: 5, yards: 494, bend: 10, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 1, elev: 6 },
+      // back nine (approximate yardages)
+      { par: 4, yards: 410, bend: -9, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: -3 },
+      { par: 4, yards: 385, bend: 12, bendAt: 0.58, greenBunkers: 2, fairwayBunkers: 1, elev: 4 },
+      { par: 3, yards: 175, water: ['pond-front'], greenBunkers: 2, elev: -2 },
+      { par: 5, yards: 520, bend: -7, bendAt: 0.45, bend2: 8, bend2At: 0.75, greenBunkers: 3, fairwayBunkers: 2, elev: 3 },
+      { par: 4, yards: 430, bend: 6, bendAt: 0.6, water: ['pond-right'], greenBunkers: 2, fairwayBunkers: 1 },
+      { par: 4, yards: 395, bend: -14, bendAt: 0.58, greenBunkers: 2, fairwayBunkers: 2, elev: 5 },
+      { par: 3, yards: 205, greenBunkers: 3, elev: -4, greenSlope: 2.4 },
+      { par: 4, yards: 440, bend: 10, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2, elev: -1 },
+      { par: 4, yards: 420, bend: -6, bendAt: 0.55, greenBunkers: 3, fairwayBunkers: 1, elev: 7 },
     ],
   },
   {
@@ -157,6 +177,16 @@ export const COURSES: CourseDef[] = [
       { par: 3, yards: 109, water: ['ocean-right'], oceanBehind: true, greenBunkers: 4, elev: -7, greenSize: 0.65 },
       { par: 4, yards: 428, bend: 8, bendAt: 0.62, water: ['chasm', 'ocean-right'], greenBunkers: 2, greenSize: 0.8, elev: -2 },
       { par: 4, yards: 505, bend: -4, bendAt: 0.5, water: ['ocean-right'], greenBunkers: 2, fairwayBunkers: 1, greenSize: 0.8, elev: -1 },
+      // back nine
+      { par: 4, yards: 495, bend: -5, bendAt: 0.55, water: ['ocean-right'], greenBunkers: 2, fairwayBunkers: 2, greenSize: 0.8, elev: -2 },
+      { par: 4, yards: 390, bend: 6, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 1, elev: 5, greenSize: 0.8 },
+      { par: 3, yards: 202, greenBunkers: 3, greenSize: 0.7, greenSlope: 2.2 },
+      { par: 4, yards: 445, bend: -6, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 2, elev: 4, greenSize: 0.8, greenSlope: 3 },
+      { par: 5, yards: 580, bend: 14, bendAt: 0.5, bend2: 6, bend2At: 0.8, greenBunkers: 3, fairwayBunkers: 2, elev: 3, greenSize: 0.7 },
+      { par: 4, yards: 397, bend: 4, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 1, elev: -3, greenSize: 0.8 },
+      { par: 4, yards: 403, bend: -8, bendAt: 0.6, greenBunkers: 3, fairwayBunkers: 2, elev: -4, greenSize: 0.8 },
+      { par: 3, yards: 208, water: ['ocean-left'], oceanBehind: true, greenBunkers: 3, greenSize: 0.75, greenSlope: 2 },
+      { par: 5, yards: 543, bend: -10, bendAt: 0.55, water: ['ocean-left'], greenBunkers: 3, fairwayBunkers: 2, greenSize: 0.85 },
     ],
   },
   {
@@ -190,6 +220,16 @@ export const COURSES: CourseDef[] = [
       { par: 4, yards: 372, name: 'High', bend: 14, bendAt: 0.55, greenBunkers: 2, fairwayBunkers: 2, pot: true, fwWidth: 1.2, greenSize: 1.4 },
       { par: 3, yards: 175, name: 'Short', greenBunkers: 2, pot: true, greenSize: 1.2, greenSlope: 2 },
       { par: 4, yards: 352, name: 'End', greenBunkers: 1, fairwayBunkers: 3, pot: true, fwWidth: 1.6, greenSize: 1.2 },
+      // back nine
+      { par: 4, yards: 386, name: 'Bobby Jones', bend: -4, bendAt: 0.55, greenBunkers: 1, fairwayBunkers: 3, pot: true, fwWidth: 1.5, greenSize: 1.2 },
+      { par: 3, yards: 174, name: 'High (In)', greenBunkers: 2, pot: true, greenSize: 1.3, greenSlope: 3.2 },
+      { par: 4, yards: 348, name: 'Heathery (In)', bend: 4, bendAt: 0.55, greenBunkers: 1, fairwayBunkers: 5, pot: true, fwWidth: 1.5, greenSize: 1.2 },
+      { par: 4, yards: 465, name: "Hole O'Cross (In)", bend: -6, bendAt: 0.5, greenBunkers: 2, fairwayBunkers: 4, pot: true, fwWidth: 1.4, greenSize: 1.6 },
+      { par: 5, yards: 618, name: 'Long', bend: 5, bendAt: 0.45, bend2: -6, bend2At: 0.75, greenBunkers: 2, fairwayBunkers: 6, pot: true, fwWidth: 1.4, greenSize: 1.4 },
+      { par: 4, yards: 455, name: 'Cartgate (In)', bend: -4, bendAt: 0.6, greenBunkers: 2, fairwayBunkers: 3, pot: true, fwWidth: 1.4, greenSize: 1.3 },
+      { par: 4, yards: 423, name: 'Corner of the Dyke', bend: 6, bendAt: 0.55, greenBunkers: 2, fairwayBunkers: 3, pot: true, fwWidth: 1.3, greenSize: 1.3 },
+      { par: 4, yards: 495, name: 'Road', bend: 14, bendAt: 0.55, greenBunkers: 1, fairwayBunkers: 2, pot: true, fwWidth: 1.2, greenSize: 1.0, greenSlope: 2.4 },
+      { par: 4, yards: 357, name: 'Tom Morris', water: ['burn'], greenBunkers: 0, fairwayBunkers: 0, fwWidth: 1.9, greenSize: 1.3, greenSlope: 2.6 },
     ],
   },
 ];
@@ -200,3 +240,18 @@ export function courseById(id: string): CourseDef {
 
 export const coursePar = (c: CourseDef) => c.holes.reduce((a, h) => a + h.par, 0);
 export const courseYards = (c: CourseDef) => c.holes.reduce((a, h) => a + h.yards, 0);
+
+/** Which holes a round uses: the front nine (1-9), the back nine (10-18) or all eighteen. */
+export type HoleSet = 'front' | 'back' | 'all';
+export const HOLE_SETS: { id: HoleSet; name: string; desc: string }[] = [
+  { id: 'front', name: 'Front 9', desc: 'Holes 1-9' },
+  { id: 'back', name: 'Back 9', desc: 'Holes 10-18' },
+  { id: 'all', name: '18 Holes', desc: 'The full course' },
+];
+
+/** The course cut down to the chosen holes, and the number of the first one. */
+export function courseForSet(c: CourseDef, set: HoleSet): { course: CourseDef; firstHole: number } {
+  if (set === 'all' || c.holes.length <= 9) return { course: c, firstHole: 1 };
+  if (set === 'back') return { course: { ...c, holes: c.holes.slice(9, 18) }, firstHole: 10 };
+  return { course: { ...c, holes: c.holes.slice(0, 9) }, firstHole: 1 };
+}

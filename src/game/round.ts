@@ -3,31 +3,43 @@
 import * as THREE from 'three';
 import { sfx } from '../audio/sfx';
 import { Rng, clamp, toYards } from '../core/rng';
-import { playerLevel, save, type Appearance, type Difficulty } from '../core/save';
+import { playerLevel, save, type Difficulty } from '../core/save';
 import { CLUBS, PUTT_SHOT, SHOT_TYPES, TIERS, animFor, type ClubDef, type ShotTypeDef } from '../data/clubs';
 import type { CourseDef } from '../data/courses';
-import { TreeIndex, sampleAt, simulateShot, type SimEnv, type SimResult } from '../physics/ballPhysics';
+import { BALL_R, TreeIndex, sampleAt, simulateShot, type SimEnv, type SimResult } from '../physics/ballPhysics';
 import { Hud } from '../ui/hud';
 import { SkyEnvironment } from '../world/environment';
 import { HoleField, SURF_NAME, Surf } from '../world/holeGen';
 import { AimOverlay, GreenGrid } from '../world/overlays';
 import { Ball, CourseProps } from '../world/props';
-import { buildTerrainMesh, cloudUniforms, loadTerrainTextures, terrainTime } from '../world/terrain';
+import { buildTerrainMesh, cloudUniforms, loadTerrainTextures, terrainSurfaceAt, terrainTime } from '../world/terrain';
 import { GrassField } from '../world/grass';
+import { Divots } from '../world/divots';
+import { Rain, pickWeather, type Weather } from '../world/weather';
+import { Birds } from '../world/birds';
+import { Crowd } from '../world/crowd';
 import { OuterWorld } from '../world/outerWorld';
 import { Vegetation, setVegetationWind } from '../world/vegetation';
-import { AI_SKILL, planAiShot } from './ai';
+import { AI_SKILL, planAiShot, type Opponent } from './ai';
+import { swingStyleById, type SwingStyleId } from '../data/swingStyles';
 import { CameraDirector } from './cameraDirector';
 import { Golfer } from './golfer';
-import { MatchState, WIN_XP, bonusXp, scoreName, xpMul, type Side } from './match';
-import { PERFECT_SWING, errorScale, fullCarry, launchFor, lieMods, type ShotSetup, type SwingResult } from './shotModel';
+import { MatchState, WIN_XP, bonusXp, scoreName, xpMul, type Format, type MatchOptions, type Side } from './match';
+import { PERFECT_SWING, SPIN_MODS, errorScale, fullCarry, launchFor, lieMods, type ShotSetup, type SwingResult } from './shotModel';
 import { SwingInput } from './swingInput';
 
 export interface RoundConfig {
+  /** The course cut down to the holes being played. */
   course: CourseDef;
   difficulty: Difficulty;
-  opponent: { name: string; appearance: Appearance };
+  opponent: Opponent;
   seed: number;
+  format: Format;
+  /** Number of the first hole played (10 for the back nine). */
+  firstHole: number;
+  /** Practice: no opponent, holes loop, no XP. */
+  practice: boolean;
+  options: MatchOptions;
 }
 
 export interface RoundResult {
@@ -36,6 +48,7 @@ export interface RoundResult {
   difficulty: Difficulty;
   opponentName: string;
   quit: boolean;
+  options: MatchOptions;
 }
 
 interface Competitor {
@@ -52,9 +65,10 @@ interface Competitor {
   pickedUp: boolean;
   prev: { pos: THREE.Vector3; lie: Surf; teed: boolean };
   tiers: Record<string, number>;
+  style: SwingStyleId;
 }
 
-type State = 'loading' | 'intro' | 'aim' | 'swing' | 'flight' | 'ai' | 'between' | 'over';
+type State = 'loading' | 'intro' | 'aim' | 'swing' | 'flight' | 'ai' | 'between' | 'replay' | 'over';
 
 const PUTT_SCALES = [3, 6, 10, 15, 22, 30, 42];
 /** Putts inside this range (metres) are conceded. */
@@ -70,6 +84,19 @@ export class Round {
   private grass: GrassField | null = null;
   private veg = new Vegetation();
   private props: CourseProps;
+  private divots: Divots;
+  /** Set by Enter during the opponent's turn: rush the rest of that turn. */
+  private aiSkip = false;
+  /** Easy only: one free replay per hole after finding water or going out of bounds. */
+  private mulliganUsed = false;
+  /** The last shot played (either golfer), for the replay key. */
+  private lastShot: { comp: Competitor; r: SimResult; setup: ShotSetup; start: THREE.Vector3 } | null = null;
+  private replay: { t: number; ev: number; ball: Ball; hidden: boolean } | null = null;
+  /** Today's weather (picked per round). */
+  private weather: Weather;
+  private rain: Rain | null = null;
+  private birds = new Birds();
+  private crowd = new Crowd();
   private overlay: AimOverlay;
   private grid: GreenGrid;
   private cam: CameraDirector;
@@ -84,6 +111,8 @@ export class Round {
   // aim state
   private clubIdx = 0;
   private shotIdx = 0;
+  /** Index into SPIN_MODS (C cycles it); resets to Normal for each shot. */
+  private spinIdx = 0;
   private power = 1;
   private aimAngle = 0;
   private puttScale = 6;
@@ -105,6 +134,13 @@ export class Round {
   private keyUpHandler = (e: KeyboardEvent) => this.onKey(e, false);
   private wheelHandler = (e: WheelEvent) => this.onWheel(e);
   paused = false;
+  /** Grey skies use the misty sky's own exposure; rain darkens a touch on top. */
+  get exposureMul(): number {
+    const W = this.weather;
+    return W.hdri ? (1 / this.cfg.course.exposure) * W.exposureMul : W.exposureMul;
+  }
+  /** Compiles the shaders of everything in the scene (set by main) so the first frames don't hitch. */
+  precompile: (() => Promise<void>) | null = null;
   onExit: ((r: RoundResult) => void) | null = null;
   onPause: (() => void) | null = null;
 
@@ -117,12 +153,14 @@ export class Round {
     private cfg: RoundConfig,
   ) {
     this.rng = new Rng(cfg.seed);
-    this.match = new MatchState(cfg.course.holes.map((h) => h.par));
+    this.match = new MatchState(cfg.course.holes.map((h) => h.par), cfg.format, cfg.firstHole);
+    this.weather = pickWeather(cfg.course, this.rng, cfg.practice ? 'fair' : save.settings.weather, cfg.options.weather);
     this.props = new CourseProps(scene);
+    this.divots = new Divots(scene);
     this.overlay = new AimOverlay(scene);
     this.grid = new GreenGrid(scene);
     this.cam = new CameraDirector(camera);
-    this.scene.add(this.veg.group);
+    this.scene.add(this.veg.group, this.birds.group, this.crowd.group);
     this.swing = new SwingInput(canvas, {
       onBackswing: (f) => this.onBackswing(f),
       onDownswing: () => {},
@@ -149,14 +187,23 @@ export class Round {
     const aiTier = AI_SKILL[this.cfg.difficulty].tier;
     const aiTiers: Record<string, number> = {};
     for (const c of CLUBS) aiTiers[c.id] = aiTier;
-    const mk = (side: Side, name: string, color: string, golfer: Golfer, tiers: Record<string, number>): Competitor => ({
+    const mk = (side: Side, name: string, color: string, golfer: Golfer, tiers: Record<string, number>, style: SwingStyleId): Competitor => ({
       side, name, color, golfer, ball: new Ball(this.scene, 0xffffff, color), pos: new THREE.Vector3(), lie: Surf.Tee, teed: true, strokes: 0, holed: false, pickedUp: false,
-      prev: { pos: new THREE.Vector3(), lie: Surf.Tee, teed: true }, tiers,
+      prev: { pos: new THREE.Vector3(), lie: Surf.Tee, teed: true }, tiers, style,
     });
-    this.player = mk('player', save.name || 'Player', '#f2c14e', pg, save.clubs);
-    this.ai = mk('ai', this.cfg.opponent.name, '#ff6b5b', ag, aiTiers);
+    this.player = mk('player', save.name || 'Player', '#f2c14e', pg, save.clubs, save.swingStyle);
+    this.ai = mk('ai', this.cfg.opponent.name, '#ff6b5b', ag, aiTiers, this.cfg.opponent.personality.style);
+    // each golfer's swing looks like their style: backswing length and downswing speed
+    for (const c of [this.player, this.ai]) {
+      const st = swingStyleById(c.style);
+      c.golfer.swingLength = Math.min(1, st.backswing);
+      c.golfer.swingSpeed = st.downswing;
+    }
+    this.swing.style = swingStyleById(save.swingStyle);
     this.current = this.player;
     await this.props.init();
+    await this.divots.init();
+    await this.crowd.init();
     await loadTerrainTextures();
     this.hud.show(true);
     this.hud.setHelp(false, save.settings.swingMode);
@@ -188,30 +235,60 @@ export class Round {
     this.scene.add(this.grass.group);
     await this.veg.build(field, q, this.outer ?? undefined);
     this.treeIndex = new TreeIndex(this.veg.colliders);
-    this.props.place(field);
+    this.mulliganUsed = false;
+    this.lastShot = null;
+    // birds over the hole (fewer in the rain)
+    const mid = new THREE.Vector3((field.tee.x + field.cup.x) / 2, Math.max(field.teeH, field.heightAt(field.cup.x, field.cup.z)), (field.tee.z + field.cup.z) / 2);
+    // the gallery (none in practice)
+    if (this.cfg.practice) this.crowd.group.visible = false;
+    else this.crowd.place(field, this.cfg.seed + i * 53);
+    if (this.weather.kind === 'rain') this.birds.clear();
+    else this.birds.place(mid, Math.max(120, field.length), this.cfg.seed + i * 31);
+    for (const c of [this.player, this.ai]) c.ball.setMarked(false);
+    this.props.place(field, terrainSurfaceAt(field, this.terrain.userData.step as number, field.cup.x, field.cup.z));
+    this.divots.reset(field);
     this.props.setFlagVisible(true);
     this.grid.build(field, field.cup.x, field.cup.z, Math.max(field.green.rx, field.green.rz) * 1.5);
     const playDir = new THREE.Vector2(field.cup.x - field.tee.x, field.cup.z - field.tee.z).normalize();
     // a strong key sun with less sky fill reads as a bright broadcast day
-    await this.env.apply(course.hdri, { envIntensity: course.envIntensity * 0.75, sunIntensity: course.sunIntensity * 1.35, playDir, sunOffsetDeg: 150 + this.rng.range(-35, 35) });
-    const misty = course.id === 'standrews';
+    const W = this.weather;
+    // time of day: Pebble plays in the warm, low late-afternoon sun of its sky; grey days are cool
+    const golden = course.style === 'coastal' && !W.hdri;
+    await this.env.apply(W.hdri ?? course.hdri, {
+      envIntensity: course.envIntensity * 0.75 * W.envMul,
+      sunIntensity: course.sunIntensity * 1.35 * W.sunMul * (golden ? 1.06 : 1),
+      playDir,
+      sunOffsetDeg: 150 + this.rng.range(-35, 35),
+      minSunY: golden ? 0.27 : 0.32,
+      sunColor: golden ? new THREE.Color(1, 0.9, 0.78) : W.hdri ? new THREE.Color(0.9, 0.94, 1) : undefined,
+    });
+    const misty = course.id === 'standrews' || !!W.hdri;
     this.env.haze = {
-      density: misty ? 0.0007 : course.style === 'coastal' ? 0.00026 : 0.00022,
+      density: (misty ? 0.0007 : course.style === 'coastal' ? 0.00026 : 0.00022) * W.hazeMul * (course.id === 'standrews' && W.hdri ? 0.7 : 1),
       falloff: 1 / 380,
       base: Math.min(field.teeH, field.seaLevel + 12) - 8,
       skyHaze: misty ? 0.85 : 0.55,
     };
+    // rain streaks and sound
+    if (W.kind === 'rain' && !this.rain) {
+      this.rain = new Rain();
+      this.scene.add(this.rain.mesh);
+    }
+    sfx.setRain(W.kind === 'rain');
+    this.hud.setWeather(W.kind === 'fair' ? '' : W.label);
     // wind
-    const mph = this.rng.range(course.windMin, course.windMax);
+    const windSetting = { calm: 0.4, light: 0.7, full: 1 }[save.settings.wind] ?? 0.7;
+    const mph = this.rng.range(course.windMin, course.windMax) * W.windMul * windSetting;
     const wa = this.rng.range(0, Math.PI * 2);
     this.wind = { x: Math.cos(wa) * mph * 0.447 * 0.75, z: Math.sin(wa) * mph * 0.447 * 0.75, mph };
     this.props.setWind(this.wind.x, this.wind.z);
+    sfx.setCourseAmbience(course.style, mph);
     setVegetationWind(this.wind.x, this.wind.z);
     this.grass?.setWind(this.wind.x, this.wind.z);
     // cloud shadows drift with the wind
     const cs = (mph * 0.447 + 4) * 0.0016 * 0.6;
     cloudUniforms.uCloud.value.set(Math.cos(wa) * cs, Math.sin(wa) * cs);
-    cloudUniforms.uCloudCover.value = course.id === 'standrews' ? 0.45 : course.id === 'pebble' ? 0.18 : 0.3;
+    cloudUniforms.uCloudCover.value = W.cloudCover ?? (course.id === 'standrews' ? 0.45 : course.id === 'pebble' ? 0.18 : 0.3);
     // competitors to the tee
     const t = field.tee;
     const right = { x: -field.teeDir.z, z: field.teeDir.x };
@@ -230,15 +307,30 @@ export class Round {
     }
     this.placeBall(this.player);
     this.placeBall(this.ai);
+    if (this.cfg.practice) {
+      // practice: the opponent sits this one out
+      this.ai.pickedUp = true;
+      this.ai.ball.setVisible(false);
+    }
     this.hud.buildMinimap(field);
     const d = course.holes[i];
-    this.hud.setHole(course.name, i + 1, d.par, d.yards, d.name);
+    const holeNo = i + this.cfg.firstHole;
+    this.hud.setHole(course.name, holeNo, d.par, d.yards, d.name, this.pinSheet());
     this.refreshHudScores();
-    this.hud.setMatch(this.match.statusText(), this.match.holes, i);
+    this.hud.setMatch(this.statusText(), this.match.holes, i, this.cfg.firstHole);
     this.refreshXp();
     // flyover intro
     this.state = 'intro';
-    this.hud.showIntro(i + 1, d.par, d.yards, d.name, `${course.name} · ${this.match.statusText()}`);
+    const o = this.cfg.opponent;
+    const extra: string[] = [];
+    if (i === 0 && !this.cfg.practice) extra.push(`vs ${o.name} · ${o.personality.label}: ${o.personality.blurb}`);
+    extra.push(`Pin: ${this.pinSheet()}`);
+    if (this.cfg.practice) extra.push('N next hole · B putting practice');
+    const wx = this.weather.kind === 'fair' ? '' : ` · ${this.weather.label}`;
+    this.hud.showIntro(holeNo, d.par, d.yards, d.name, this.cfg.practice ? `${course.name} · Practice` : `${course.name}${wx} · ${this.statusText()}`, extra);
+    // compile every new shader now, behind the intro card, instead of hitching mid-flyover
+    await this.precompile?.();
+    if (this.disposed) return;
     this.cam.startFlyover(field, () => {
       this.hud.hideIntro();
       this.beginTurn();
@@ -276,7 +368,7 @@ export class Round {
 
   private refreshHudScores() {
     const row = (c: Competitor) => ({ name: c.name, strokes: c.strokes, color: c.color, active: c === this.current && this.state !== 'between', holed: c.holed, lie: SURF_NAME[c.lie] });
-    this.hud.setStrokes([row(this.player), row(this.ai)]);
+    this.hud.setStrokes(this.cfg.practice ? [row(this.player)] : [row(this.player), row(this.ai)]);
   }
 
   /** Keep the sun's shadow map over what the camera is looking at. */
@@ -287,7 +379,8 @@ export class Round {
     if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
     fwd.normalize();
     const wide = this.cam.mode === 'flight' || this.cam.mode === 'target' || this.cam.mode === 'flyover' || this.cam.mode === 'green';
-    const ext = wide ? 130 : 70;
+    // a tight shadow box while addressing the ball keeps the golfer's and the gallery's shadows crisp
+    const ext = wide ? 130 : this.cam.mode === 'putt' ? 40 : 55;
     if (this.env.shadowSize !== ext) this.env.setShadowExtent(ext);
     const p = this.tmpFocus.copy(this.camera.position).addScaledVector(fwd, ext * 0.62);
     p.y = this.field.heightAt(p.x, p.z);
@@ -316,12 +409,19 @@ export class Round {
       return;
     }
     this.current = next;
+    // a ball on the green is marked with a coin while the other golfer plays
+    for (const c of [this.player, this.ai]) c.ball.setMarked(c !== next && !c.holed && !c.pickedUp && c.lie === Surf.Green);
     this.refreshHudScores();
     // hide the other golfer, show this one
     for (const c of [this.player, this.ai]) c.golfer.root.visible = c === next;
     this.env.focus(next.pos);
     const onGreen = next.lie === Surf.Green;
     this.props.setFlagVisible(!onGreen);
+    // the gallery walks with the players (the tee and green already have theirs)
+    if (!this.cfg.practice && !next.teed && next.lie !== Surf.Green) {
+      const cup = this.field.cup, d = Math.hypot(cup.x - next.pos.x, cup.z - next.pos.z) || 1;
+      this.crowd.gatherAt(next.pos, (cup.x - next.pos.x) / d, (cup.z - next.pos.z) / d);
+    }
     if (next.side === 'player') this.setupPlayerAim();
     else void this.aiTurn();
   }
@@ -352,6 +452,7 @@ export class Round {
     if (c.lie === Surf.Green || (c.lie === Surf.Fringe && dist < 12)) this.clubIdx = CLUBS.length - 1;
     else this.clubIdx = this.suggestClubIdx(dist);
     this.shotIdx = 0;
+    this.spinIdx = 0;
     if (this.club.kind !== 'putter' && dist < 40) {
       const list = this.allowedShots(this.club);
       const chip = list.findIndex((s) => s.id === 'chip');
@@ -372,7 +473,7 @@ export class Round {
     CLUBS.forEach((cl, i) => {
       if (cl.kind === 'putter') return;
       if (cl.kind === 'driver' && !allowDriver) return;
-      const full = fullCarry(cl, c.tiers[cl.id] ?? 0, SHOT_TYPES[0], c.lie, c.teed) * 1.06;
+      const full = fullCarry(cl, c.tiers[cl.id] ?? 0, SHOT_TYPES[0], c.lie, c.teed, c.style) * 1.06;
       const need = dist / full;
       const err = need > 1.0 ? (need - 1) * 3 : Math.abs(0.92 - need);
       if (err < bestErr) { bestErr = err; best = i; }
@@ -387,7 +488,7 @@ export class Round {
     let tx = cup.x, tz = cup.z;
     const dist = this.distToCup(c);
     if (club.kind !== 'putter') {
-      const full = fullCarry(club, c.tiers[club.id] ?? 0, this.shotType, c.lie, c.teed);
+      const full = fullCarry(club, c.tiers[club.id] ?? 0, this.shotType, c.lie, c.teed, c.style);
       if (full * 1.12 < dist - 15) {
         // lay up along the centre line
         let s = Math.max(0, this.field.pathCoords(c.pos.x, c.pos.z).s);
@@ -409,14 +510,15 @@ export class Round {
   private currentSetup(power = this.power): ShotSetup {
     const c = this.player;
     const a = this.aimDir;
-    return { club: this.club, tier: c.tiers[this.club.id] ?? 0, shot: this.shotType, power, aimX: a.x, aimZ: a.z, x: c.pos.x, y: c.pos.y, z: c.pos.z, lie: c.lie, teed: c.teed, puttScale: this.puttScale };
+    return { club: this.club, tier: c.tiers[this.club.id] ?? 0, shot: this.shotType, power, aimX: a.x, aimZ: a.z, x: c.pos.x, y: c.pos.y, z: c.pos.z, lie: c.lie, teed: c.teed, puttScale: this.puttScale, style: c.style, spin: this.club.kind === 'putter' ? 'normal' : SPIN_MODS[this.spinIdx].id };
   }
 
   private simEnv(forPreview: boolean, putting: boolean): SimEnv {
     return {
       ground: this.field,
       wind: { x: this.wind.x, z: this.wind.z },
-      firmness: this.cfg.course.firmness,
+      firmness: this.cfg.course.firmness * (1 - 0.15 * this.weather.wet),
+      wet: this.weather.wet,
       cup: this.field.cup,
       flagIn: !putting,
       trees: forPreview ? undefined : this.treeIndex ?? undefined,
@@ -437,7 +539,7 @@ export class Round {
       this.swing.target = this.power;
       return;
     }
-    const full = fullCarry(this.club, c.tiers[this.club.id] ?? 0, this.shotType, c.lie, c.teed);
+    const full = fullCarry(this.club, c.tiers[this.club.id] ?? 0, this.shotType, c.lie, c.teed, c.style);
     let p = clamp(dist / (full * 1.08), 0.2, 1);
     // refine on the real terrain so the ball finishes near the pin when it is reachable
     if (dist < full * 1.15) {
@@ -463,7 +565,7 @@ export class Round {
     this.placeBag(c);
     this.props.placeTeePeg(c.pos.x, this.field.heightAt(c.pos.x, c.pos.z), c.pos.z, c.teed && this.club.kind !== 'putter');
     this.swing.putting = putting;
-    this.swing.errScale = putting ? Math.pow(1 / TIERS[c.tiers[this.club.id] ?? 0].accuracy, 0.9) : errorScale(this.currentSetup());
+    this.swing.errScale = putting ? Math.pow(1 / TIERS[c.tiers[this.club.id] ?? 0].accuracy, 0.9) * swingStyleById(c.style).shortError : errorScale(this.currentSetup());
     this.hud.setHelp(putting, save.settings.swingMode);
   }
 
@@ -481,6 +583,31 @@ export class Round {
     const x = c.pos.x - a.x * 2.4 - right.x * 1.6, z = c.pos.z - a.z * 2.4 - right.z * 1.6;
     if (this.field.surfAt(x, z) === Surf.Water) this.props.hideBag();
     else this.props.placeBag(x, z, this.field.heightAt(x, z), this.aimAngle, save.appearance.shirt);
+  }
+
+  /**
+   * How a putt hit straight at the hole with the current pace would curve: e.g. "6 in right".
+   * Measured where the ball passes the hole (or where it stops, if it comes up short).
+   */
+  private readBreak(): string {
+    const c = this.player, cup = this.field.cup;
+    const dx = cup.x - c.pos.x, dz = cup.z - c.pos.z;
+    const L = Math.hypot(dx, dz);
+    if (L < 0.6) return 'Straight';
+    const fx = dx / L, fz = dz / L;
+    const setup = { ...this.currentSetup(), aimX: fx, aimZ: fz };
+    const r = simulateShot(launchFor(setup, PERFECT_SWING(this.power)), { ...this.simEnv(true, true), cup: null });
+    const sm = r.samples;
+    let lateral = 0;
+    for (let i = 0; i < sm.length; i += 4) {
+      const px = sm[i + 1] - c.pos.x, pz = sm[i + 3] - c.pos.z;
+      lateral = px * -fz + pz * fx;
+      if (px * fx + pz * fz >= L) break;
+    }
+    const inches = Math.abs(lateral) / 0.0254;
+    if (inches < 1.5) return 'Straight';
+    const amount = inches < 24 ? `${Math.round(inches)} in` : `${(inches / 12).toFixed(1)} ft`;
+    return `${amount} ${lateral > 0 ? 'right' : 'left'}`;
   }
 
   private updatePreview() {
@@ -505,6 +632,7 @@ export class Round {
       tier: c.tiers[this.club.id] ?? 0,
       shotName: this.shotType.name,
       shotDesc: this.shotType.desc,
+      spin: putting ? null : SPIN_MODS[this.spinIdx].name,
       lie: putting && c.lie === Surf.Green ? 'Green' : lm.label,
       toPin: this.distToCup(c),
       elevation: cupH - this.field.heightAt(c.pos.x, c.pos.z),
@@ -513,9 +641,10 @@ export class Round {
       total: putting ? null : diff === 'hard' ? null : r.total,
       putting,
       puttScale: this.puttScale,
+      breakText: putting && diff !== 'hard' ? this.readBreak() : null,
     });
     this.hud.setClubBar(
-      CLUBS.map((cl) => ({ short: cl.short, tier: c.tiers[cl.id] ?? 0, carry: cl.kind === 'putter' ? 0 : fullCarry(cl, c.tiers[cl.id] ?? 0, SHOT_TYPES[0], c.lie, c.teed), enabled: true })),
+      CLUBS.map((cl) => ({ short: cl.short, tier: c.tiers[cl.id] ?? 0, carry: cl.kind === 'putter' ? 0 : fullCarry(cl, c.tiers[cl.id] ?? 0, SHOT_TYPES[0], c.lie, c.teed, c.style), enabled: true })),
       this.clubIdx,
     );
     this.swing.target = this.power;
@@ -545,12 +674,18 @@ export class Round {
       if (this.state === 'intro') this.cam.skipFlyover();
       return;
     }
+    if (k === 'Enter' && this.aiTurnActive()) {
+      e.preventDefault();
+      this.aiSkip = true;
+      return;
+    }
     if (this.state !== 'aim' || this.swing.active) return;
     const putting = this.club.kind === 'putter';
     if (k === 'ArrowRight' || k === 'ArrowLeft') {
       e.preventDefault();
       const n = CLUBS.length;
       this.clubIdx = (this.clubIdx + (k === 'ArrowRight' ? 1 : n - 1)) % n;
+      sfx.bagRattle();
       if (this.club.kind === 'driver' && !(this.player.teed || this.player.lie === Surf.Fairway)) this.clubIdx = (this.clubIdx + (k === 'ArrowRight' ? 1 : n - 1)) % n;
       this.shotIdx = 0;
       this.resetAim();
@@ -562,6 +697,19 @@ export class Round {
       this.previewDirty = true;
     } else if (k === 'r') {
       this.resetAim();
+    } else if (k === 'p') {
+      this.startReplay();
+    } else if (k === 'n' && this.cfg.practice) {
+      this.swing.enabled = false;
+      this.state = 'between';
+      this.nextPracticeHole();
+    } else if (k === 'b' && this.cfg.practice) {
+      this.puttingPractice();
+    } else if (k === 'c' && !putting) {
+      this.spinIdx = (this.spinIdx + 1) % SPIN_MODS.length;
+      this.autoPower();
+      this.applyAimPose();
+      this.previewDirty = true;
     } else if (k === 'v') {
       this.targetView = !this.targetView;
       this.greenView = false;
@@ -633,6 +781,7 @@ export class Round {
     this.swing.enabled = false;
     const setup = this.currentSetup(r.power);
     const dur = save.settings.swingMode === 'stick' ? 0.2 : 0.22;
+    this.swooshFor(setup.club.kind, r.power);
     this.player.golfer.startDownswing(dur, () => this.executeShot(this.player, setup, r));
   }
 
@@ -642,6 +791,8 @@ export class Round {
     const launch = launchFor(setup, swing);
     const r = simulateShot(launch, this.simEnv(false, putting));
     c.prev = { pos: c.pos.clone(), lie: c.lie, teed: c.teed };
+    this.lastShot = { comp: c, r, setup, start: c.pos.clone() };
+    this.tearDivot(c, setup, swing);
     this.flight = { comp: c, r, t: 0, ev: 0, setup, swing, start: c.pos.clone(), speed: 1 };
     this.state = 'flight';
     this.overlay.hide();
@@ -651,6 +802,9 @@ export class Round {
     c.ball.clearTracer();
     this.props.placeTeePeg(0, -10, 0, false);
     sfx.strike(setup.club.kind, swing.quality);
+    if (c.prev.teed && setup.club.kind !== 'putter') sfx.teePop();
+    // someone in the gallery shouts when it's heading for the trees or out of bounds
+    if (setup.club.kind !== 'putter' && (r.outcome === 'ob' || r.events.some((e) => e.type === 'tree'))) this.after(Math.min(1.2, (r.landingTime || 2) * 0.4), () => sfx.fore());
     this.cam.startFlight(this.field, r, putting || r.duration < 1.2);
     if (c.side === 'player') {
       const tone = (t: string) => (t === 'Perfect' ? 'good' : t === 'Good' ? 'ok' : 'bad') as 'good' | 'ok' | 'bad';
@@ -663,8 +817,35 @@ export class Round {
     // prepare rough grass near the landing spot for the landing camera
   }
 
+  /** Irons and wedges (and woods off the deck, barely) take turf after the ball; mishits take more. */
+  private tearDivot(c: Competitor, setup: ShotSetup, swing: SwingResult) {
+    const kind = setup.club.kind;
+    if (kind === 'putter' || kind === 'driver') return;
+    if (c.lie !== Surf.Fairway && c.lie !== Surf.Rough && c.lie !== Surf.Deep && c.lie !== Surf.Tee) return;
+    const sweep = kind === 'wood' || kind === 'hybrid';
+    if (sweep && c.teed) return;
+    let s = sweep ? 0.5 : kind === 'wedge' ? 1.05 : 0.9;
+    if (c.teed) s *= 0.65;
+    const shot = setup.shot.id;
+    if (shot === 'chip' || shot === 'bump') s *= 0.45;
+    else if (shot === 'pitch' || shot === 'flop') s *= 0.8;
+    else if (shot === 'punch') s *= 1.1;
+    if (swing.quality < 0.6) s *= 1.2; // hit it fat
+    if (c.lie === Surf.Deep) s *= 0.8;
+    s *= 0.9 + Math.random() * 0.2;
+    this.divots.add(c.pos.x, c.pos.z, setup.aimX, setup.aimZ, s, s >= 0.6);
+  }
+
   private updateFlight(dt: number) {
     const f = this.flight!;
+    if (this.aiSkip && f.comp === this.ai) {
+      // skip the rest of the opponent's ball flight: no tracer, no landing sounds, straight to the result
+      this.flight = null;
+      f.comp.ball.clearTracer();
+      f.comp.ball.setVisible(f.r.outcome !== 'water');
+      this.finishShot(f.comp, f.r, f);
+      return;
+    }
     const ff = this.keys.has(' ') ? 3 : 1;
     f.t += dt * ff;
     const r = f.r;
@@ -672,42 +853,150 @@ export class Round {
     const c = f.comp;
     const g = this.field.heightAt(this.tmp.x, this.tmp.z);
     c.ball.setPosition(this.tmp, g);
+    // visible backspin in the air (a capped, readable rate), rolling on the ground
+    c.ball.spinWithMotion(dt * ff, f.setup.club.kind === 'putter' ? 0 : Math.min(6, 1.5 + f.setup.club.spin / 1800));
     const inAir = !r.landing || f.t < r.landingTime;
     if (inAir && f.setup.club.kind !== 'putter') c.ball.addTracerPoint(this.tmp);
+    this.rollSound(inAir && f.setup.club.kind !== 'putter', g, dt * ff);
     while (f.ev < r.events.length && r.events[f.ev].t <= f.t) {
       const e = r.events[f.ev++];
-      if (e.type === 'bounce' && e.speed !== undefined && e.speed > 1.5) {
-        const s = e.surf === Surf.Green || e.surf === Surf.Fringe ? 'green' : e.surf === Surf.Bunker ? 'sand' : e.surf === Surf.Rough || e.surf === Surf.Deep ? 'rough' : 'fairway';
-        sfx.land(s, e.speed);
-      } else if (e.type === 'tree') sfx.tree();
-      else if (e.type === 'splash') { sfx.splash(); c.ball.setVisible(false); }
-      else if (e.type === 'cup') sfx.cup();
-      else if (e.type === 'pin') sfx.land('green', 8);
+      this.playEvent(e, c.ball);
+      // approach shots that land hard on the green leave a pitch mark
+      if (e.type === 'bounce' && e.surf === Surf.Green && (e.speed ?? 0) > 4 && f.setup.club.kind !== 'putter') this.divots.addPitchMark(e.x, e.z);
     }
-    if (f.t >= r.duration + 0.9) {
+    if (f.t >= r.duration + 0.6) {
       this.flight = null;
+      sfx.setRoll(0);
       this.finishShot(c, r, f);
     }
   }
 
+  private rollPrev = new THREE.Vector3();
+
+  /** The ball rolling across a green makes a soft rumble that follows its speed. */
+  private rollSound(inAir: boolean, groundY: number, dt: number) {
+    const p = this.tmp;
+    const speed = dt > 0 ? Math.hypot(p.x - this.rollPrev.x, p.z - this.rollPrev.z) / dt : 0;
+    this.rollPrev.copy(p);
+    const onGreen = !inAir && p.y - groundY < 0.05 && this.field.surfAt(p.x, p.z) === Surf.Green;
+    sfx.setRoll(onGreen && speed < 8 ? speed / 2.2 : 0);
+  }
+
+  /** Club whoosh on the way down: louder and brighter for the long clubs and full swings. */
+  private swooshFor(kind: ClubDef['kind'], power: number) {
+    if (kind === 'putter') return;
+    const k = kind === 'driver' ? 1.25 : kind === 'wood' || kind === 'hybrid' ? 1.1 : kind === 'wedge' ? 0.75 : 0.9;
+    this.after(0.04, () => sfx.swoosh(k * (0.5 + 0.5 * Math.min(1, power))));
+  }
+
+  /** Sound (and splash) for one moment of a shot, live or replayed. */
+  private playEvent(e: SimResult['events'][number], ball: Ball) {
+    if (e.type === 'bounce' && e.speed !== undefined && e.speed > 0.8) {
+      const s = e.surf === Surf.Green || e.surf === Surf.Fringe ? 'green' : e.surf === Surf.Bunker ? 'sand' : e.surf === Surf.Rough || e.surf === Surf.Deep ? 'rough' : 'fairway';
+      sfx.land(s, e.speed);
+    } else if (e.type === 'tree') sfx.tree();
+    else if (e.type === 'splash') { sfx.splash(); ball.setVisible(false); }
+    else if (e.type === 'cup') sfx.cup();
+    else if (e.type === 'pin') sfx.land('green', 8);
+    else if (e.type === 'lip') sfx.ooh(1);
+  }
+
+  // ---------------------------------------------------------------- replay
+
+  /** Watch the last shot again (either golfer's) from the shot's own camera, then aim again. */
+  private startReplay() {
+    const L = this.lastShot;
+    if (!L || this.replay) return;
+    this.state = 'replay';
+    this.swing.enabled = false;
+    this.hud.setAimUi(false);
+    this.overlay.hide();
+    this.grid.setVisible(false);
+    this.hud.setTurn('REPLAY  ·  Space to speed up', 'var(--blue)');
+    const ball = new Ball(this.scene, 0xffffff, L.comp.color);
+    ball.setPosition(L.start, this.field.heightAt(L.start.x, L.start.z));
+    // the real ball sits where this shot finished: hide it so there aren't two
+    const hidden = L.comp.ball.mesh.visible;
+    L.comp.ball.setVisible(false);
+    for (const c of [this.player, this.ai]) c.golfer.root.visible = false;
+    this.props.setFlagVisible(L.setup.club.kind !== 'putter');
+    this.cam.startReplay(this.field, L.r, L.start, L.setup.aimX, L.setup.aimZ, L.setup.club.kind === 'putter');
+    this.replay = { t: -0.5, ev: 0, ball, hidden };
+  }
+
+  private updateReplay(dt: number) {
+    const R = this.replay!, L = this.lastShot!;
+    R.t += dt * (this.keys.has(' ') ? 3 : 1);
+    const r = L.r;
+    sampleAt(r, Math.max(0, R.t), this.tmp);
+    R.ball.setPosition(this.tmp, this.field.heightAt(this.tmp.x, this.tmp.z));
+    R.ball.spinWithMotion(dt, L.setup.club.kind === 'putter' ? 0 : Math.min(6, 1.5 + L.setup.club.spin / 1800));
+    const inAir = !r.landing || R.t < r.landingTime;
+    if (R.t > 0 && inAir && L.setup.club.kind !== 'putter') R.ball.addTracerPoint(this.tmp);
+    while (R.ev < r.events.length && r.events[R.ev].t <= R.t) this.playEvent(r.events[R.ev++], R.ball);
+    if (R.t >= r.duration + 1.2) this.endReplay();
+  }
+
+  private endReplay() {
+    const R = this.replay, L = this.lastShot;
+    if (!R || !L) return;
+    R.ball.dispose();
+    this.replay = null;
+    if (R.hidden) L.comp.ball.setVisible(true);
+    for (const c of [this.player, this.ai]) c.golfer.root.visible = c === this.current;
+    this.props.setFlagVisible(this.player.lie !== Surf.Green);
+    this.state = 'aim';
+    this.hud.setTurn('YOUR SHOT');
+    this.hud.setAimUi(true);
+    this.applyAimPose();
+    this.swing.reset();
+    this.swing.enabled = true;
+    this.previewDirty = true;
+  }
+
   private finishShot(c: Competitor, r: SimResult, f: { setup: ShotSetup; swing: SwingResult; start: THREE.Vector3 }) {
+    if (c.side === 'player' && this.cfg.difficulty === 'easy' && !this.mulliganUsed && (r.outcome === 'water' || r.outcome === 'ob')) {
+      // Easy: the first ball into water or out of bounds on a hole is a free do-over
+      this.mulliganUsed = true;
+      c.pos.copy(c.prev.pos);
+      c.lie = c.prev.lie;
+      c.teed = c.prev.teed;
+      c.ball.setVisible(true);
+      this.placeBall(c);
+      this.hud.showBanner('MULLIGAN', `${r.outcome === 'water' ? 'Wet one' : 'Out of bounds'} — free replay from the same spot (one per hole on Easy)`, 'good', 2600);
+      sfx.groan();
+      this.refreshHudScores();
+      this.state = 'between';
+      this.after(2.0, () => this.beginTurn());
+      return;
+    }
     c.strokes++;
-    const xp = c.side === 'player' ? this.swingXp(c, r, f) : null;
+    const xp = c.side === 'player' && !this.cfg.practice ? this.swingXp(c, r, f) : null;
     c.teed = false;
     const putting = f.setup.club.kind === 'putter';
-    let delay = 1.6;
+    let delay = 1.25;
     const field = this.field;
     if (r.outcome === 'holed') {
       c.holed = true;
-      c.ball.setVisible(false);
+      // the ball stays where it dropped, at the bottom of the cup
+      c.ball.setPosition(this.tmp.set(r.rest.x, this.props.cupFloorY + BALL_R, r.rest.z), field.heightAt(field.cup.x, field.cup.z));
       c.pos.set(field.cup.x, field.heightAt(field.cup.x, field.cup.z), field.cup.z);
       const name = scoreName(c.strokes, field.def.par);
       const good = c.strokes <= field.def.par;
       const who = c.side === 'player' ? '' : `${c.name}: `;
       this.hud.showBanner(c.strokes === 1 ? 'HOLE IN ONE!' : name.toUpperCase(), `${who}${c.strokes} ${c.strokes === 1 ? 'stroke' : 'strokes'}`, c.side === 'player' ? (good ? 'good' : '') : '', 2600);
-      sfx.crowd(c.strokes < field.def.par ? 1 : 0.5);
-      if (c.side === 'player') c.golfer.playClip(good ? 'Celebrate' : 'Idle');
-      delay = 2.6;
+      // bigger roars for birdies, chip-ins and long putts; the holer reacts either way
+      const startD = Math.hypot(f.start.x - field.cup.x, f.start.z - field.cup.z);
+      const special = c.strokes < field.def.par || !putting || startD > 6;
+      if (special) {
+        sfx.cheer(c.strokes <= field.def.par - 2 || c.strokes === 1 ? 1.4 : 1);
+        this.crowd.cheer(1);
+      } else {
+        sfx.crowd(0.5);
+        this.crowd.cheer(0.35);
+      }
+      if (c.golfer.root.visible) c.golfer.playClip(good || special ? 'Celebrate' : 'Idle');
+      delay = 2.2;
     } else if (r.outcome === 'water') {
       c.strokes++;
       const e = r.waterEntry ?? { x: r.rest.x, z: r.rest.z };
@@ -718,7 +1007,8 @@ export class Round {
       this.placeBall(c);
       this.hud.showBanner('WATER HAZARD', `${c.side === 'player' ? 'You take' : c.name + ' takes'} a 1-stroke penalty drop`, c.side === 'player' ? 'bad' : '', 2600);
       sfx.groan();
-      delay = 2.6;
+      if (c.golfer.root.visible) c.golfer.playClip('Dejected');
+      delay = 2.2;
     } else if (r.outcome === 'ob') {
       c.strokes++;
       c.pos.copy(c.prev.pos);
@@ -728,7 +1018,8 @@ export class Round {
       this.placeBall(c);
       this.hud.showBanner('OUT OF BOUNDS', 'Stroke and distance — replay from the previous spot', c.side === 'player' ? 'bad' : '', 2600);
       sfx.groan();
-      delay = 2.6;
+      if (c.golfer.root.visible) c.golfer.playClip('Dejected');
+      delay = 2.2;
     } else {
       c.pos.set(r.rest.x, 0, r.rest.z);
       c.lie = r.restSurf;
@@ -741,13 +1032,23 @@ export class Round {
         c.ball.setVisible(false);
         const name = scoreName(c.strokes, field.def.par);
         this.hud.showBanner(name.toUpperCase(), `${c.side === 'player' ? 'Putt conceded' : c.name + "'s putt conceded"} — ${c.strokes} strokes`, c.side === 'player' && c.strokes <= field.def.par ? 'good' : '', 2200);
-        delay = 2.2;
+        delay = 1.9;
       } else if (!putting) {
         const carry = toYards(r.carry), total = toYards(r.total);
         this.hud.shotResult(`<span>${c.side === 'player' ? 'You' : c.name}</span><span>Carry <b>${carry.toFixed(0)}</b> yds</span><span>Total <b>${total.toFixed(0)}</b> yds</span><span><b>${SURF_NAME[c.lie]}</b></span><span>To pin <b>${toYards(dist).toFixed(0)}</b> yds</span>${xp ? `<span class="xp">XP <b>+${xp.xp}</b></span>` : ''}`);
+        // the gallery applauds a good one: stiffed approaches loudest, then greens hit and big drives down the middle
+        const fromGreen = c.prev.lie === Surf.Green || c.prev.lie === Surf.Fringe;
+        if (!fromGreen && c.lie === Surf.Green) {
+          sfx.golfClap(dist < 3 ? 1 : dist < 8 ? 0.7 : 0.4);
+          this.crowd.cheer(dist < 3 ? 0.6 : 0.25);
+        } else if (c.prev.teed && c.lie === Surf.Fairway && total >= 240) sfx.golfClap(0.45);
       } else {
         this.hud.shotResult(`<span>${c.side === 'player' ? 'You' : c.name}</span><span><b>${(dist / 0.3048).toFixed(1)} ft</b> left</span>${xp ? `<span class="xp">XP <b>+${xp.xp}</b></span>` : ''}`);
-        if (r.closest < 0.15) sfx.groan();
+        // so close: the crowd reacts and the golfer can't believe it
+        if (r.closest < 0.15) {
+          if (!r.events.some((e) => e.type === 'lip')) sfx.ooh(0.8);
+          if (c.golfer.root.visible) c.golfer.playClip('Dejected');
+        }
       }
     }
     this.refreshHudScores();
@@ -768,6 +1069,7 @@ export class Round {
       this.hud.showBanner('PICKED UP', `${c.side === 'player' ? 'You concede' : c.name + ' concedes'} the hole`, '', 2200);
     }
     this.state = 'between';
+    if (this.aiSkip && c === this.ai) delay = Math.min(delay, 1.2);
     this.after(delay, () => {
       if (this.holeDecided()) this.endHole();
       else this.beginTurn();
@@ -828,6 +1130,10 @@ export class Round {
 
   private holeDecided(): boolean {
     const p = this.player, a = this.ai;
+    const done = (c: Competitor) => c.holed || c.pickedUp;
+    // practice: the hole is over when you're in; stroke play: both golfers hole out
+    if (this.cfg.practice) return done(p);
+    if (this.cfg.format === 'stroke') return done(p) && done(a);
     if (p.pickedUp || a.pickedUp) return true;
     if (p.holed && a.holed) return true;
     if (p.holed && !a.holed && a.strokes >= p.strokes) return true;
@@ -835,23 +1141,51 @@ export class Round {
     return false;
   }
 
+  /** Where the hole is cut, as on a pin sheet: "Back left · 24 yds on". */
+  private pinSheet(): string {
+    const f = this.field, g = f.green, cup = f.cup;
+    const app = f.pointAt(Math.max(0, f.length - 35));
+    let dx = g.x - app.x, dz = g.z - app.z;
+    const l = Math.hypot(dx, dz) || 1;
+    dx /= l; dz /= l;
+    const R = Math.max(g.rx, g.rz);
+    const depth = ((cup.x - g.x) * dx + (cup.z - g.z) * dz) / R;
+    const side = ((cup.x - g.x) * -dz + (cup.z - g.z) * dx) / R;
+    const fb = depth > 0.3 ? 'Back' : depth < -0.3 ? 'Front' : 'Middle';
+    const lr = side > 0.3 ? 'right' : side < -0.3 ? 'left' : '';
+    const on = Math.max(1, Math.round(toYards(depth * R + R)));
+    return `${fb}${lr ? ' ' + lr : fb === 'Middle' ? '' : ' centre'} · ${on} yds on`;
+  }
+
+  /** Header status: the match/stroke/skins state, or PRACTICE. */
+  private statusText(): string {
+    return this.cfg.practice ? 'PRACTICE' : this.match.statusText();
+  }
+
   private endHole() {
     if (this.state === 'over') return;
     this.state = 'between';
     const p = this.player, a = this.ai;
+    const par = this.field.def.par;
+    if (this.cfg.practice) {
+      this.endPracticeHole();
+      return;
+    }
     let conceded: Side | undefined;
-    if (p.pickedUp && !a.pickedUp) conceded = 'player';
-    else if (a.pickedUp && !p.pickedUp) conceded = 'ai';
-    else if (p.holed && !a.holed) conceded = 'ai';
-    else if (a.holed && !p.holed) conceded = 'player';
+    if (this.cfg.format !== 'stroke') {
+      if (p.pickedUp && !a.pickedUp) conceded = 'player';
+      else if (a.pickedUp && !p.pickedUp) conceded = 'ai';
+      else if (p.holed && !a.holed) conceded = 'ai';
+      else if (a.holed && !p.holed) conceded = 'player';
+    }
+    const potBefore = this.match.skins().pot;
     const xpBefore = bonusXp(this.match, this.cfg.difficulty).total;
     this.match.record(this.holeIdx, p.strokes, a.strokes, conceded, p.holed);
     const hr = this.match.holes[this.holeIdx];
-    const par = this.field.def.par;
     const xpGain = bonusXp(this.match, this.cfg.difficulty).total - xpBefore;
     if (xpGain > 0) {
       const parts: string[] = [];
-      if (hr.winner === 'player') parts.push('Hole won');
+      if (hr.winner === 'player') parts.push(this.cfg.format === 'skins' ? `${potBefore} skin${potBefore > 1 ? 's' : ''}` : 'Hole won');
       if (p.holed && p.strokes - par <= -1) parts.push(scoreName(p.strokes, par));
       this.after(1.2, () => {
         this.hud.xpPop(xpGain, parts.join(' · '));
@@ -859,31 +1193,69 @@ export class Round {
         this.refreshXp();
       });
     } else this.refreshXp();
-    const desc = (c: Competitor) => (c.holed ? `${c.strokes} (${scoreName(c.strokes, par)})` : `${c.strokes} — conceded`);
+    const desc = (c: Competitor) => (c.holed ? `${c.strokes} (${scoreName(c.strokes, par)})` : `${c.strokes} — ${this.cfg.format === 'stroke' ? 'picked up' : 'conceded'}`);
     const scores = `You ${desc(p)} · ${a.name.split(' ')[0]} ${desc(a)} · ${this.match.statusText()}`;
+    const fmt = this.cfg.format;
+    const skins = (n: number) => `${n} SKIN${n > 1 ? 'S' : ''}`;
     if (hr.winner === 'player') {
       this.honor = 'player';
-      this.hud.showBanner('YOU WIN THE HOLE', scores, 'good', 3200);
-      sfx.crowd(0.8);
+      const big = fmt === 'skins' ? `YOU WIN ${skins(potBefore)}` : fmt === 'stroke' ? 'BEST SCORE ON THE HOLE' : 'YOU WIN THE HOLE';
+      this.hud.showBanner(big, scores, 'good', 3200);
+      sfx.crowd(fmt === 'skins' ? Math.min(1.4, 0.6 + potBefore * 0.2) : 0.8);
       p.golfer.root.visible = true;
       a.golfer.root.visible = false;
       p.golfer.playClip('Celebrate');
     } else if (hr.winner === 'ai') {
       this.honor = 'ai';
-      this.hud.showBanner(`${a.name.toUpperCase()} WINS THE HOLE`, scores, 'bad', 3200);
+      const big = fmt === 'skins' ? `${a.name.split(' ')[0].toUpperCase()} WINS ${skins(potBefore)}` : fmt === 'stroke' ? `${a.name.split(' ')[0].toUpperCase()} TAKES THE HOLE` : `${a.name.toUpperCase()} WINS THE HOLE`;
+      this.hud.showBanner(big, scores, 'bad', 3200);
       if (p.golfer.root.visible) p.golfer.playClip('Dejected');
     } else {
-      this.hud.showBanner('HOLE HALVED', scores, '', 3200);
+      const big = fmt === 'skins' ? `${skins(potBefore)} CARR${potBefore > 1 ? 'Y' : 'IES'} OVER` : fmt === 'stroke' ? 'SAME SCORE' : 'HOLE HALVED';
+      this.hud.showBanner(big, scores, '', 3200);
     }
-    this.hud.setMatch(this.match.statusText(), this.match.holes, this.holeIdx);
+    this.hud.setMatch(this.match.statusText(), this.match.holes, this.holeIdx, this.cfg.firstHole);
     this.refreshHudScores();
-    this.after(3.6, () => {
+    this.after(3.0, () => {
       if (this.match.finished || this.holeIdx >= this.cfg.course.holes.length - 1) {
         this.match.finished = true;
         this.state = 'over';
-        this.onExit?.({ match: this.match, course: this.cfg.course, difficulty: this.cfg.difficulty, opponentName: this.cfg.opponent.name, quit: false });
+        this.onExit?.({ match: this.match, course: this.cfg.course, difficulty: this.cfg.difficulty, opponentName: this.cfg.opponent.name, quit: false, options: this.cfg.options });
       } else void this.loadHole(this.holeIdx + 1);
     });
+  }
+
+  /** Practice: show the score, then play on (the holes loop until you quit). */
+  private endPracticeHole() {
+    const p = this.player, par = this.field.def.par;
+    this.match.record(this.holeIdx, p.strokes, p.strokes, undefined, p.holed);
+    this.hud.showBanner(p.holed ? scoreName(p.strokes, par).toUpperCase() : 'PICKED UP', `Hole ${this.holeIdx + this.cfg.firstHole} · ${p.strokes} strokes`, p.holed && p.strokes <= par ? 'good' : '', 2600);
+    this.hud.setMatch(this.statusText(), this.match.holes, this.holeIdx, this.cfg.firstHole);
+    this.after(2.8, () => this.nextPracticeHole());
+  }
+
+  private nextPracticeHole() {
+    const n = this.cfg.course.holes.length;
+    if (this.holeIdx >= n - 1) this.match = new MatchState(this.cfg.course.holes.map((h) => h.par), this.cfg.format, this.cfg.firstHole);
+    void this.loadHole((this.holeIdx + 1) % n);
+  }
+
+  /** Practice: drop the ball somewhere on the green for putting practice. */
+  private puttingPractice() {
+    const f = this.field, cup = f.cup, c = this.player;
+    for (let k = 0; k < 60; k++) {
+      const a = this.rng.range(0, Math.PI * 2), d = this.rng.range(1.5, 11);
+      const x = cup.x + Math.cos(a) * d, z = cup.z + Math.sin(a) * d;
+      if (f.surfAt(x, z) !== Surf.Green) continue;
+      c.pos.set(x, 0, z);
+      c.lie = Surf.Green;
+      c.teed = false;
+      c.ball.setVisible(true);
+      this.placeBall(c);
+      this.hud.showBanner('PUTTING PRACTICE', `${(d / 0.3048).toFixed(0)} ft from the hole`, '', 1600);
+      this.beginTurn();
+      return;
+    }
   }
 
   // ---------------------------------------------------------------- AI
@@ -891,8 +1263,9 @@ export class Round {
   private async aiTurn() {
     const c = this.ai;
     this.state = 'ai';
+    this.aiSkip = false;
     this.hud.setAimUi(false);
-    this.hud.setTurn(`${c.name} is lining up…`, 'var(--bad)');
+    this.hud.setTurn(`${c.name} (${this.cfg.opponent.personality.label}) is lining up…  ·  Enter to skip`, 'var(--bad)');
     const dist = this.distToCup(c);
     const dirToCup = { x: (this.field.cup.x - c.pos.x) / (dist || 1), z: (this.field.cup.z - c.pos.z) / (dist || 1) };
     const putting0 = c.lie === Surf.Green;
@@ -903,12 +1276,12 @@ export class Round {
     this.placeBagFor(c, dirToCup);
     const t0 = performance.now();
     const plan = await planAiShot(
-      { field: this.field, ball: { x: c.pos.x, y: c.pos.y, z: c.pos.z }, lie: c.lie, teed: c.teed, env: { ...this.simEnv(false, putting0), trees: this.treeIndex ?? undefined, seed: 7 }, difficulty: this.cfg.difficulty },
+      { field: this.field, ball: { x: c.pos.x, y: c.pos.y, z: c.pos.z }, lie: c.lie, teed: c.teed, env: { ...this.simEnv(false, putting0), trees: this.treeIndex ?? undefined, seed: 7 }, difficulty: this.cfg.difficulty, personality: this.cfg.opponent.personality },
       this.rng,
     );
     if (this.disposed) return;
-    const wait = Math.max(0, 1.3 - (performance.now() - t0) / 1000);
-    await new Promise((res) => this.after(wait, () => res(null)));
+    const wait = Math.max(0, 0.85 - (performance.now() - t0) / 1000);
+    await this.aiPause(wait);
     if (this.disposed) return;
     const s = plan.setup;
     const anim = animFor(s.club, s.shot);
@@ -919,8 +1292,8 @@ export class Round {
     this.props.setFlagVisible(!(putting && c.lie === Surf.Green));
     this.cam.setAddress(this.field, c.pos, s.aimX, s.aimZ, putting, false, this.field.heightAt(this.field.cup.x, this.field.cup.z));
     this.placeBagFor(c, { x: s.aimX, z: s.aimZ });
-    this.hud.setTurn(`${c.name} · ${s.club.name}${s.shot.id !== 'normal' && s.shot.id !== 'putt' ? ' · ' + s.shot.name : ''}`, 'var(--bad)');
-    await new Promise((res) => this.after(0.7, () => res(null)));
+    this.hud.setTurn(`${c.name} · ${s.club.name}${s.shot.id !== 'normal' && s.shot.id !== 'putt' ? ' · ' + s.shot.name : ''}  ·  Enter to skip`, 'var(--bad)');
+    await this.aiPause(0.45);
     if (this.disposed) return;
     // animated backswing then strike
     const target = Math.min(1, putting ? 0.35 + 0.65 * Math.min(1, (s.puttScale ?? 5) / 20) : plan.swing.power);
@@ -932,12 +1305,39 @@ export class Round {
         back.t += 1 / 60;
         const u = Math.min(1, back.t / dur);
         c.golfer.setBackswing(target * (1 - (1 - u) * (1 - u)));
-        if (u >= 1) res();
+        if (this.aiSkip) {
+          c.golfer.setBackswing(target);
+          res();
+        } else if (u >= 1) res();
         else this.after(1 / 60, step);
       };
       step();
     });
-    c.golfer.startDownswing(putting ? 0.35 : 0.24, () => this.executeShot(c, s, plan.swing));
+    if (this.disposed) return;
+    if (!this.aiSkip) this.swooshFor(s.club.kind, plan.swing.power);
+    c.golfer.startDownswing(this.aiSkip ? 0.08 : putting ? 0.35 : 0.24, () => this.executeShot(c, s, plan.swing));
+  }
+
+  /** The opponent is lining up, swinging, or their ball is in the air. */
+  private aiTurnActive(): boolean {
+    if (this.paused || !this.ai) return false;
+    return this.state === 'ai' || (this.state === 'flight' && this.flight?.comp === this.ai);
+  }
+
+  /** Wait during the opponent's turn; ends early once the player asks to skip. */
+  private aiPause(sec: number): Promise<void> {
+    return new Promise((res) => {
+      let left = sec;
+      const step = () => {
+        if (this.disposed) return;
+        if (this.aiSkip || left <= 0) res();
+        else {
+          left -= 1 / 30;
+          this.after(1 / 30, step);
+        }
+      };
+      step();
+    });
   }
 
   private placeBagFor(c: Competitor, a: { x: number; z: number }) {
@@ -959,7 +1359,8 @@ export class Round {
       holes: this.match.holes,
       yards: this.cfg.course.holes.map((h) => h.yards),
       names: [this.player?.name ?? 'You', this.ai?.name ?? 'AI'] as [string, string],
-      status: this.match.statusText(),
+      status: this.statusText(),
+      firstHole: this.cfg.firstHole,
     };
   }
 
@@ -989,9 +1390,14 @@ export class Round {
       }
     }
     if (this.state === 'flight' && this.flight) this.updateFlight(dt);
+    if (this.state === 'replay' && this.replay) this.updateReplay(dt);
     for (const c of [this.player, this.ai]) c.golfer.update(dt);
-    const focusBall = this.flight ? this.flight.comp.ball.mesh.position : this.current.pos;
+    const focusBall = this.replay ? this.replay.ball.mesh.position : this.flight ? this.flight.comp.ball.mesh.position : this.current.pos;
     this.cam.update(dt, this.field, focusBall);
+    this.divots.update(dt);
+    this.rain?.update(dt, this.camera, this.wind.x, this.wind.z);
+    this.birds.update(dt);
+    this.crowd.update(dt, this.camera);
     this.grass?.update(this.camera, this.field.heightAt(this.camera.position.x, this.camera.position.z));
     this.updateShadowFocus();
     // HUD bits
@@ -1023,6 +1429,7 @@ export class Round {
       }
       this.hud.drawMinimap(this.field, balls, aim);
     }
+    this.replay?.ball.updateScale(this.camera);
     for (const c of [this.player, this.ai]) {
       c.ball.updateScale(this.camera);
       if (this.flight?.comp !== c) c.ball.fadeTracer(dt);
@@ -1038,12 +1445,19 @@ export class Round {
   }
 
   quit() {
-    this.onExit?.({ match: this.match, course: this.cfg.course, difficulty: this.cfg.difficulty, opponentName: this.cfg.opponent.name, quit: true });
+    this.onExit?.({ match: this.match, course: this.cfg.course, difficulty: this.cfg.difficulty, opponentName: this.cfg.opponent.name, quit: true, options: this.cfg.options });
   }
 
   dispose() {
     this.disposed = true;
     this.swing.enabled = false;
+    this.replay?.ball.dispose();
+    this.replay = null;
+    this.rain?.dispose();
+    this.rain = null;
+    this.birds.dispose();
+    this.crowd.dispose();
+    sfx.setRain(false);
     window.removeEventListener('keydown', this.keyHandler);
     window.removeEventListener('keyup', this.keyUpHandler);
     this.canvas.removeEventListener('wheel', this.wheelHandler);
@@ -1051,6 +1465,7 @@ export class Round {
     this.unloadTerrain();
     this.veg.dispose();
     this.scene.remove(this.veg.group, this.props.group, this.overlay.group, this.grid.mesh);
+    this.divots.dispose();
     for (const c of [this.player, this.ai]) {
       if (!c) continue;
       this.scene.remove(c.golfer.root);

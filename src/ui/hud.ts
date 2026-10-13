@@ -13,6 +13,8 @@ export interface ShotInfo {
   tier: number;
   shotName: string;
   shotDesc: string;
+  /** Spin setting for full shots (null for putts). */
+  spin?: string | null;
   lie: string;
   toPin: number; // metres
   elevation: number; // metres
@@ -21,6 +23,8 @@ export interface ShotInfo {
   total: number | null;
   putting: boolean;
   puttScale?: number;
+  /** Putts: how the putt breaks (Easy/Medium only). */
+  breakText?: string | null;
 }
 
 export interface ClubSlot {
@@ -105,11 +109,12 @@ export class Hud {
     for (const el of [this.shot, this.clubBar, this.meter, this.meterHint]) el.classList.toggle('hidden', !v);
   }
 
-  setHole(course: string, hole: number, par: number, yards: number, name: string | undefined) {
+  setHole(course: string, hole: number, par: number, yards: number, name: string | undefined, pin = '') {
     this.holeCard.innerHTML = `
       <div class="course">${esc(course)}</div>
       <div class="hole"><b>HOLE ${hole}</b><span>PAR ${par} · ${yards} YDS</span></div>
       <div class="hole-name">${name ? `“${esc(name)}”` : ''}</div>
+      ${pin ? `<div class="pin-sheet">Pin: <b>${esc(pin)}</b></div>` : ''}
       <div class="strokes"></div>`;
   }
 
@@ -123,19 +128,38 @@ export class Hud {
       .join('');
   }
 
-  setMatch(status: string, holes: HoleRecord[], current: number) {
+  setMatch(status: string, holes: HoleRecord[], current: number, firstHole = 1) {
     const cls = status.includes('UP') || status.startsWith('WON') ? 'up' : status.includes('DN') || status.startsWith('LOST') ? 'dn' : '';
     this.match.innerHTML = `<div class="status ${cls}">${esc(status)}</div><div class="holes">${holes
       .map((hr, i) => {
         const c = hr.winner === 'player' ? 'p' : hr.winner === 'ai' ? 'a' : hr.winner === 'halved' ? 'h' : '';
-        return `<i class="${c} ${i === current ? 'cur' : ''}">${i + 1}</i>`;
+        return `<i class="${c} ${i === current ? 'cur' : ''}">${i + firstHole}</i>`;
       })
       .join('')}</div>`;
   }
 
+  private weatherLabel = '';
+
+  private windKey = '';
+  private windDeg = NaN;
+
+  /** Called every frame: only writes to the page when the arrow or the text actually changes. */
   setWind(mph: number, relDeg: number) {
-    this.windArrow.style.transform = `rotate(${relDeg}deg)`;
-    this.windSpeed.textContent = `${mph.toFixed(0)} MPH`;
+    const deg = Math.round(relDeg * 2) / 2;
+    if (deg !== this.windDeg) {
+      this.windArrow.style.transform = `rotate(${deg}deg)`;
+      this.windDeg = deg;
+    }
+    const key = `${mph.toFixed(0)}|${this.weatherLabel}`;
+    if (key !== this.windKey) {
+      this.windSpeed.innerHTML = `${mph.toFixed(0)} MPH${this.weatherLabel ? `<small>${esc(this.weatherLabel)}</small>` : ''}`;
+      this.windKey = key;
+    }
+  }
+
+  /** Weather shown under the wind speed (empty for fair weather). */
+  setWeather(label: string) {
+    this.weatherLabel = label;
   }
 
   /** Level progress, spendable balance, XP banked this match and what a win is worth. */
@@ -172,9 +196,11 @@ export class Hud {
       swing,
       '<span class="key">←</span><span class="key">→</span> club',
       '<span class="key">A</span><span class="key">D</span> aim · <span class="key">W</span><span class="key">S</span> power',
-      putting ? '<span class="key">G</span> read green' : '<span class="key">Q</span><span class="key">E</span> shot type',
+      putting ? '<span class="key">G</span> read green' : '<span class="key">Q</span><span class="key">E</span> shot type · <span class="key">C</span> spin',
       '<span class="key">V</span> target view · <span class="key">G</span> green',
+      '<span class="key">P</span> replay last shot · <span class="key">R</span> reset aim',
       '<span class="key">Tab</span> scorecard · <span class="key">Esc</span> menu',
+      '<span class="key">Enter</span> skip opponent\'s shot',
     ].join('<br>');
   }
 
@@ -208,11 +234,11 @@ export class Hud {
         <div>To pin <b>${dist}</b></div>
         <div>Elevation <b>${elev}</b></div>
         ${s.putting
-          ? `<div>Putt power <b>${ft((s.puttScale ?? 0) * s.power)} ft</b></div><div>Scale <b>${ft(s.puttScale ?? 0)} ft</b></div>`
+          ? `<div>Putt power <b>${ft((s.puttScale ?? 0) * s.power)} / ${ft(s.puttScale ?? 0)} ft</b></div><div>Break <b>${s.breakText ? esc(s.breakText) : '—'}</b></div>`
           : `<div>Carry <b>${s.carry !== null ? yd(s.carry) + ' yds' : '—'}</b></div><div>Total <b>${s.total !== null ? yd(s.total) + ' yds' : '—'}</b></div>`}
       </div>
       <div class="power-row"><span>Power</span><div class="bar"><i style="width:${Math.round(Math.min(1, s.power) * 100)}%"></i></div><b style="color:var(--text)">${Math.round(s.power * 100)}%</b></div>
-      <div class="lie">Lie: <b>${esc(s.lie)}</b></div>`;
+      <div class="lie">Lie: <b>${esc(s.lie)}</b>${s.spin ? `<span class="spin-set"><span class="key">C</span> Spin: <b>${esc(s.spin)}</b></span>` : ''}</div>`;
   }
 
   private buildMeter() {
@@ -266,8 +292,8 @@ export class Hud {
     this.resultTimer = ms / 1000;
   }
 
-  showIntro(hole: number, par: number, yards: number, name: string | undefined, hcp: string) {
-    this.intro.innerHTML = `<div class="n">${esc(hcp)}</div><div class="h">HOLE ${hole}</div><div class="y">Par ${par} · ${yards} yards${name ? ` · “${esc(name)}”` : ''}</div><div class="skip"><span class="key">Space</span> skip flyover</div>`;
+  showIntro(hole: number, par: number, yards: number, name: string | undefined, hcp: string, extra: string[] = []) {
+    this.intro.innerHTML = `<div class="n">${esc(hcp)}</div><div class="h">HOLE ${hole}</div><div class="y">Par ${par} · ${yards} yards${name ? ` · “${esc(name)}”` : ''}</div>${extra.map((x) => `<div class="x">${esc(x)}</div>`).join('')}<div class="skip"><span class="key">Space</span> skip flyover</div>`;
     this.intro.classList.remove('hidden');
   }
 
@@ -292,26 +318,41 @@ export class Hud {
 
   // ---------------------------------------------------------------- tags
 
+  private tagV = new THREE.Vector3();
+  private tagState = new Map<string, { shown: boolean; text: string; tx: number; ty: number }>();
+
+  /**
+   * Floating name tag over a ball. Runs every frame, so it only touches the DOM when something
+   * changed, and moves with a transform (no page layout).
+   */
   setTag(id: string, text: string, world: THREE.Vector3 | null, cam: THREE.Camera, ai: boolean) {
     let el = this.tagEls.get(id);
-    if (!el) {
+    let st = this.tagState.get(id);
+    if (!el || !st) {
       el = h('div', { class: `tag ${ai ? 'ai' : ''}` });
       this.tags.append(el);
       this.tagEls.set(id, el);
+      st = { shown: true, text: '', tx: NaN, ty: NaN };
+      this.tagState.set(id, st);
     }
-    if (!world) {
-      el.style.display = 'none';
-      return;
+    const v = world ? this.tagV.copy(world).project(cam) : null;
+    const show = !!v && v.z <= 1 && v.z >= -1 && Math.abs(v.x) <= 1.1 && Math.abs(v.y) <= 1.1;
+    if (show !== st.shown) {
+      el.style.display = show ? 'block' : 'none';
+      st.shown = show;
     }
-    const v = world.clone().project(cam);
-    if (v.z > 1 || v.z < -1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) {
-      el.style.display = 'none';
-      return;
+    if (!show || !v) return;
+    if (text !== st.text) {
+      el.textContent = text;
+      st.text = text;
     }
-    el.style.display = 'block';
-    el.textContent = text;
-    el.style.left = `${(v.x * 0.5 + 0.5) * 100}%`;
-    el.style.top = `${(-v.y * 0.5 + 0.5) * 100}%`;
+    const W = window.innerWidth, H = window.innerHeight; // the HUD fills the window (reading its size would force a layout)
+    const tx = Math.round((v.x * 0.5 + 0.5) * W), ty = Math.round((-v.y * 0.5 + 0.5) * H);
+    if (tx !== st.tx || ty !== st.ty) {
+      el.style.transform = `translate(${tx}px, ${ty}px) translate(-50%, -130%)`;
+      st.tx = tx;
+      st.ty = ty;
+    }
   }
 
   // ---------------------------------------------------------------- minimap
@@ -411,7 +452,7 @@ export class Hud {
 
   // ---------------------------------------------------------------- scorecard
 
-  showScorecard(v: boolean, data?: { course: string; holes: HoleRecord[]; yards: number[]; names: [string, string]; status: string }) {
+  showScorecard(v: boolean, data?: { course: string; holes: HoleRecord[]; yards: number[]; names: [string, string]; status: string; firstHole: number }) {
     this.card.classList.toggle('hidden', !v);
     if (!v || !data) return;
     const cell = (s: number | null, par: number, cls: string) => {
@@ -423,7 +464,7 @@ export class Hud {
     const holes = data.holes;
     const tot = (k: 'player' | 'ai') => holes.reduce((a, h) => a + (h[k] ?? 0), 0);
     this.card.innerHTML = `<div class="sheet panel"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px"><h2 style="margin:0">${esc(data.course)}</h2><b style="color:var(--accent)">${esc(data.status)}</b></div>
-      <table><tr><th>Hole</th>${holes.map((_, i) => `<th>${i + 1}</th>`).join('')}<th>Tot</th></tr>
+      <table><tr><th>Hole</th>${holes.map((_, i) => `<th>${i + data.firstHole}</th>`).join('')}<th>Tot</th></tr>
       <tr><td>Yards</td>${data.yards.map((y) => `<td>${y}</td>`).join('')}<td>${data.yards.reduce((a, b) => a + b, 0)}</td></tr>
       <tr><td>Par</td>${holes.map((h) => `<td>${h.par}</td>`).join('')}<td>${holes.reduce((a, h) => a + h.par, 0)}</td></tr>
       <tr><td>${esc(data.names[0])}</td>${holes.map((h) => cell(h.player, h.par, h.winner === 'player' ? 'w' : '')).join('')}<td>${tot('player') || ''}</td></tr>
