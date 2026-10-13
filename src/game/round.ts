@@ -216,7 +216,11 @@ export class Round {
   // ---------------------------------------------------------------- holes
 
   private async loadHole(i: number) {
+    // cut to black while the next hole is built, like a broadcast cutting between holes, so the
+    // build never shows as a freeze
     this.state = 'loading';
+    if (i !== 0 || this.terrain) await this.hud.cut(true);
+    if (this.disposed) return;
     this.holeIdx = i;
     this.match.current = i;
     this.hud.setAimUi(false);
@@ -332,9 +336,14 @@ export class Round {
     if (this.cfg.practice) extra.push('N next hole · B putting practice');
     const wx = this.weather.kind === 'fair' ? '' : ` · ${this.weather.label}`;
     this.hud.showIntro(holeNo, d.par, d.yards, d.name, this.cfg.practice ? `${course.name} · Practice` : `${course.name}${wx} · ${this.statusText()}`, extra);
-    // compile every new shader now, behind the intro card, instead of hitching mid-flyover
+    // compile every new shader now, behind the intro card, instead of hitching mid-flyover; the
+    // divot pieces are shown for a couple of frames too so their shadow shaders are ready
+    const unwarm = this.divots.warmup(this.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(3).add(this.camera.position));
     await this.precompile?.();
+    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    unwarm();
     if (this.disposed) return;
+    void this.hud.cut(false, 450);
     this.cam.startFlyover(field, () => {
       this.hud.hideIntro();
       this.beginTurn();

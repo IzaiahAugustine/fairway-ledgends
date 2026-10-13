@@ -336,7 +336,15 @@ async function startMatch(opts: MatchOptions) {
   round = r;
   r.onPause = () => setPaused(!paused);
   applyAudio();
-  r.precompile = () => renderer.compileAsync(courseScene, camera).then(() => undefined).catch(() => undefined);
+  // compile for the composer's HDR target (no tone mapping, linear output): compiling for the
+  // canvas would build different shader variants and the real ones would still hitch mid-play
+  r.precompile = () => {
+    const prev = renderer.getRenderTarget();
+    renderer.setRenderTarget(coursePipe.composer.renderTarget1);
+    const p = renderer.compileAsync(courseScene, camera);
+    renderer.setRenderTarget(prev);
+    return p.then(() => undefined).catch(() => undefined);
+  };
   renderer.toneMappingExposure = course.exposure * 0.92 * r.exposureMul;
   r.onExit = (res) => {
     r.dispose();

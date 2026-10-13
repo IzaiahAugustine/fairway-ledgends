@@ -46,7 +46,7 @@ export function lieMods(lie: Surf, club: ClubDef, teed: boolean): LieMods {
     case Surf.Bunker:
       return club.kind === 'wedge'
         ? { dist: 0.8, spin: 0.55, launch: 1.28, err: 1.3, label: 'Bunker — 75-85%' }
-        : { dist: club.kind === 'driver' || club.kind === 'wood' ? 0.5 : 0.68, spin: 0.45, launch: 0.95, err: 1.7, label: 'Bunker — 50-70%' };
+        : { dist: club.kind === 'driver' || club.kind === 'wood' ? 0.5 : 0.68, spin: 0.45, launch: 1.3, err: 1.7, label: 'Bunker — 50-70%' };
     default:
       return { dist: 0.85, spin: 0.6, launch: 1, err: 1.3, label: 'Rough' };
   }
@@ -190,6 +190,8 @@ export function suggestClub(dist: number, tiers: Record<string, number>, lie: Su
   for (const c of CLUBS) {
     if (c.kind === 'putter') continue;
     if (c.kind === 'driver' && !allowDriver) continue;
+    // from sand, take enough loft to clear the lip: nothing longer than a 6-iron
+    if (lie === Surf.Bunker && (c.kind === 'driver' || c.kind === 'wood' || c.kind === 'hybrid' || c.id === '4i' || c.id === '5i')) continue;
     const full = fullCarry(c, tiers[c.id] ?? 0, normal, lie, teed, style);
     // prefer a club that reaches with ~92% power
     const need = dist / full;

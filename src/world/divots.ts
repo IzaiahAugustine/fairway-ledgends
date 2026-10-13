@@ -101,6 +101,26 @@ export class Divots {
     divotUniforms.uDivotCount.value = 0;
   }
 
+  /**
+   * A scar, a chunk and a pitch mark placed at (x, z) for one frame, so their shaders (and shadow
+   * shaders) compile while the screen is black instead of hitching the first real divot.
+   * Returns a function that removes them.
+   */
+  warmup(at: THREE.Vector3): () => void {
+    const objs: THREE.Object3D[] = [];
+    for (const t of [this.scarTemplate, this.chunkTemplate]) {
+      if (!t) continue;
+      const o = t.clone();
+      o.position.copy(at);
+      objs.push(o);
+    }
+    const m = new THREE.Mesh(this.markGeo, this.markMat);
+    m.position.copy(at);
+    objs.push(m);
+    for (const o of objs) this.group.add(o);
+    return () => { for (const o of objs) o.removeFromParent(); };
+  }
+
   addPitchMark(x: number, z: number) {
     const field = this.field;
     if (!field) return;

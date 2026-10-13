@@ -521,6 +521,8 @@ canvas#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: bl
 }
 
 /* HUD: hole intro */
+.cut { position: fixed; inset: 0; background: #05080b; opacity: 0; pointer-events: none; transition: opacity 300ms ease; }
+.cut.on { opacity: 1; }
 .intro { position: absolute; left: 50%; bottom: 140px; transform: translateX(-50%); text-align: center; }
 .intro .n { font-size: calc(15px * var(--fs)); letter-spacing: 0.3em; color: var(--muted); text-transform: uppercase; }
 .intro .h { font-size: calc(56px * var(--fs)); font-weight: 900; line-height: 1; }

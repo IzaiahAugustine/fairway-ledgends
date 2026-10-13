@@ -68,9 +68,13 @@ export class Hud {
   private resultTimer = 0;
   private tagEls = new Map<string, HTMLElement>();
 
+  /** Black cut between holes (under the HUD, so the hole card shows on it). */
+  private fadeEl: HTMLElement;
+
   constructor(parent: HTMLElement) {
     this.root = h('div', { class: 'hud hidden' });
-    parent.append(this.root);
+    this.fadeEl = h('div', { class: 'cut' });
+    parent.append(this.fadeEl, this.root);
     this.holeCard = h('div', { class: 'hole-card panel' });
     this.match = h('div', { class: 'match panel' });
     this.wind = h('div', { class: 'wind panel' });
@@ -299,6 +303,13 @@ export class Hud {
 
   hideIntro() {
     this.intro.classList.add('hidden');
+  }
+
+  /** Fade to black (true) or back to the picture (false); resolves when the fade is done. */
+  cut(on: boolean, ms = 300): Promise<void> {
+    this.fadeEl.style.transitionDuration = `${ms}ms`;
+    this.fadeEl.classList.toggle('on', on);
+    return new Promise((res) => setTimeout(res, ms + 20));
   }
 
   update(dt: number) {

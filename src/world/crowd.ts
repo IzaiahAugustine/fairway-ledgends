@@ -22,7 +22,7 @@ const HAIRS = [0x1b1410, 0x3b2a1e, 0x6b4a2a, 0xb08850, 0x8a8a8a, 0xd8d0c0, 0x1c2
 /** Keep in sync with blender/env_grandstand.py. */
 const GRANDSTAND = { width: 16, tiers: 6, depth: 0.85, rise: 0.42 };
 /** Blocks closer than this (metres, to their edge) draw the detailed spectators. */
-const NEAR = 55;
+const NEAR = 85;
 const BLOCK = 36;
 const MAX_FOLLOW = 90;
 const ATTRS = [['aShirt', 3], ['aPants', 3], ['aSkin', 3], ['aHair', 3], ['aPhase', 1]] as const;

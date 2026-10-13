@@ -96,6 +96,12 @@ export class Golfer {
   private clipName = '';
   private clipT = 0;
   private waggleT = 0;
+  // follow-through: fast off the ball, easing into the finish, then a held finish
+  private followElapsed = 0;
+  private followDur = 0.9;
+  private neck: THREE.Object3D | null = null;
+  /** Chin lift (radians) on full swings: eyes on the ball without burying the chin. */
+  static CHIN_LIFT = 0.13;
   // fallback rig
   private fallbackClub: THREE.Object3D | null = null;
   hasRig = false;
@@ -165,6 +171,7 @@ export class Golfer {
         this.ballOffsets.set(a, p);
       } else this.ballOffsets.set(a, DEFAULT_BALL[a].clone());
     }
+    this.neck = model.getObjectByName('Neck') ?? null;
     this.mixer = new THREE.AnimationMixer(model);
     for (const clip of clips) {
       const a = this.mixer.clipAction(clip);
@@ -355,6 +362,13 @@ export class Golfer {
       }
     }
     this.mixer.update(0);
+    // full swings: lift the chin a little so the face shows over the ball, as on tour
+    if (this.neck && clip.startsWith('Swing_') && this.anim !== 'Putt' && this.anim !== 'Chip') {
+      // eases out after impact, when the head comes up to watch the ball anyway
+      const tm = this.timing;
+      const fade = time <= tm.impact ? 1 : Math.max(0, 1 - (time - tm.impact) / 0.25);
+      if (fade > 0) this.neck.rotateX(-Golfer.CHIN_LIFT * fade);
+    }
   }
 
   private fallbackPose(time: number) {
@@ -390,13 +404,18 @@ export class Golfer {
           const w = THREE.MathUtils.smoothstep(u, 0.55, 1);
           this.applyPose(clip, back, clip, tm.impact - (1 - u) * 0.05, w);
         } else {
-          const e = u * u * (3 - 2 * u) * 0.35 + u * 0.65; // accelerate into the ball
+          // the club keeps accelerating all the way to the ball (fastest at impact)
+          const e = 0.25 * u + 0.75 * u * u;
           this.t = this.downFrom + (tm.impact - this.downFrom) * e;
           this.applyPose(clip, this.t);
         }
         if (u >= 1) {
           this.t = tm.impact;
           this.phase = 'follow';
+          this.followElapsed = 0;
+          // leave the ball at the speed the club arrived with, then ease into the finish
+          const arrive = (1.75 * Math.max(0.01, tm.impact - this.downFrom)) / this.downDur;
+          this.followDur = THREE.MathUtils.clamp((3 * (tm.finish - tm.impact)) / arrive, 0.55, 1.3);
           if (!this.impactFired) {
             this.impactFired = true;
             this.onImpact?.();
@@ -405,7 +424,12 @@ export class Golfer {
         break;
       }
       case 'follow': {
-        this.t += dt;
+        this.followElapsed += dt;
+        if (this.anim === 'Putt' || this.anim === 'Chip') this.t += dt;
+        else if (this.followElapsed < this.followDur) {
+          const u = this.followElapsed / this.followDur;
+          this.t = tm.impact + (tm.finish - tm.impact) * (1 - (1 - u) ** 3);
+        } else this.t = tm.finish + (this.followElapsed - this.followDur);
         this.applyPose(clip, this.t);
         if (this.t >= tm.end) {
           this.phase = 'hold';
