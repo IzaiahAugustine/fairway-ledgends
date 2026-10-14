@@ -102,6 +102,15 @@ export class Golfer {
   private neck: THREE.Object3D | null = null;
   /** Chin lift (radians) on full swings: eyes on the ball without burying the chin. */
   static CHIN_LIFT = 0.13;
+  /** Seconds (clip time) over which the head comes up after impact to watch the ball. */
+  static HEAD_RELEASE = 0.55;
+  private head: THREE.Object3D | null = null;
+  /** Head orientation (model space) at the last pre-impact pose, eased out of after impact. */
+  private headHold = new THREE.Quaternion();
+  private headHeld = false;
+  private tmpM = new THREE.Matrix4();
+  private tmpQ = new THREE.Quaternion();
+  private tmpV = new THREE.Vector3();
   // fallback rig
   private fallbackClub: THREE.Object3D | null = null;
   hasRig = false;
@@ -172,6 +181,7 @@ export class Golfer {
       } else this.ballOffsets.set(a, DEFAULT_BALL[a].clone());
     }
     this.neck = model.getObjectByName('Neck') ?? null;
+    this.head = model.getObjectByName('Head') ?? null;
     this.mixer = new THREE.AnimationMixer(model);
     for (const clip of clips) {
       const a = this.mixer.clipAction(clip);
@@ -362,13 +372,37 @@ export class Golfer {
       }
     }
     this.mixer.update(0);
-    // full swings: lift the chin a little so the face shows over the ball, as on tour
     if (this.neck && clip.startsWith('Swing_') && this.anim !== 'Putt' && this.anim !== 'Chip') {
-      // eases out after impact, when the head comes up to watch the ball anyway
       const tm = this.timing;
-      const fade = time <= tm.impact ? 1 : Math.max(0, 1 - (time - tm.impact) / 0.25);
+      // lift the chin a little so the face shows over the ball, as on tour; eases out after impact
+      const fade = time <= tm.impact ? 1 : Math.max(0, 1 - (time - tm.impact) / 0.3);
       if (fade > 0) this.neck.rotateX(-Golfer.CHIN_LIFT * fade);
+      // the clip whips the head round to the target in a tenth of a second after impact; instead
+      // it stays down through the ball and comes up smoothly to watch the shot
+      const head = this.head;
+      if (head?.parent) {
+        if (time <= tm.impact) {
+          this.modelQuat(head, this.headHold);
+          this.headHeld = true;
+        } else if (this.headHeld) {
+          const u = Math.min(1, (time - tm.impact) / Golfer.HEAD_RELEASE);
+          const hold = 1 - u * u * (3 - 2 * u);
+          if (hold > 0) {
+            const want = this.modelQuat(head.parent, this.tmpQ).invert().multiply(this.headHold);
+            head.quaternion.slerp(want, hold);
+          }
+        }
+      }
     }
+  }
+
+  /** An object's orientation relative to the golfer model. */
+  private modelQuat(o: THREE.Object3D, out: THREE.Quaternion): THREE.Quaternion {
+    const model = this.model!;
+    model.updateMatrixWorld(true);
+    this.tmpM.copy(model.matrixWorld).invert().multiply(o.matrixWorld);
+    this.tmpM.decompose(this.tmpV, out, this.tmpV);
+    return out;
   }
 
   private fallbackPose(time: number) {
