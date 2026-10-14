@@ -171,6 +171,17 @@ export class GrassField {
           vec2 hj = hash22(ci);
           float hr = hash12(ci + 17.3);
           vec2 root = (ci + (hj - 0.5) * 0.95) * uSpacing;
+          // much of the square sits behind the camera, off the sides of the view or outside this
+          // layer's distance band: skip those blades before any of the texture work
+          float camD = distance(cameraPosition.xz, root);
+          float fade = smoothstep(uFade.x, uFade.y, camD) * (1.0 - smoothstep(uFade.z, uFade.w, camD));
+          float gy = groundH(root) - 0.012;
+          vec3 vRoot = (viewMatrix * vec4(root.x, gy, root.y, 1.0)).xyz;
+          float vDepth = -vRoot.z;
+          if (fade <= 0.0 || vDepth < -1.5 || abs(vRoot.x) > vDepth / projectionMatrix[0][0] + 1.5 || abs(vRoot.y) > vDepth / projectionMatrix[1][1] + 1.5) {
+            gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+            return;
+          }
           vec2 fuv = ((root - uField.xy) / 0.5 + 0.5) / uField.zw;
           float inField = step(0.0, fuv.x) * step(fuv.x, 1.0) * step(0.0, fuv.y) * step(fuv.y, 1.0);
           vec4 ca = texture2D(covA, fuv);
@@ -188,8 +199,6 @@ export class GrassField {
           noGrass = max(noGrass, inDivot(root)); // turf torn out by a divot
           float slope = cb.a * 2.55;
           noGrass = max(noGrass, smoothstep(0.55, 0.85, slope + (hr - 0.5) * 0.25));
-          float camD = distance(cameraPosition.xz, root);
-          float fade = smoothstep(uFade.x, uFade.y, camD) * (1.0 - smoothstep(uFade.z, uFade.w, camD));
           // blade height by surface (metres)
           float rough = 0.065 + 0.05 * hr;
           float hgt;
@@ -205,9 +214,13 @@ export class GrassField {
             hgt *= mix(1.0, 0.75, wDeep * uFescue);
           #endif
           hgt *= fade * inField * (1.0 - noGrass);
-          float gy = groundH(root) - 0.012;
           hgt *= step(uSea + 0.6, gy);
           float alive = step(0.004, hgt);
+          // no blade here (green, bunker, path...): skip the colour work too
+          if (alive < 0.5) {
+            gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+            return;
+          }
           // blade frame: random facing, lean and wind
           float ang = hr * 6.2832;
           vec2 face = vec2(cos(ang), sin(ang));
@@ -276,7 +289,7 @@ export class GrassField {
       const m = mat as unknown as { defines?: Record<string, string> };
       m.defines = { ...(m.defines ?? {}), GRASS_TALL: '' };
     }
-    mat.customProgramCacheKey = () => `grass-v2-${def.name}`;
+    mat.customProgramCacheKey = () => `grass-v3-${def.name}`;
     return mat;
   }
 

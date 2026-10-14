@@ -1413,6 +1413,7 @@ export class Round {
     this.birds.update(dt);
     this.crowd.update(dt, this.camera);
     this.grass?.update(this.camera, this.field.heightAt(this.camera.position.x, this.camera.position.z));
+    this.veg.cull(this.camera);
     this.updateShadowFocus();
     // HUD bits
     const camDir = new THREE.Vector3();

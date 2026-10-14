@@ -197,8 +197,11 @@ const menus = new Menus(uiRoot, {
  */
 const PIXEL_BUDGET = { high: 2_100_000, medium: 1_400_000, low: 800_000 };
 const PR_CAP = { high: 1.5, medium: 1.15, low: 0.85 };
-/** Ladder rung -> resolution scale. Rung 1 only drops ambient occlusion; the last rung also halves MSAA. */
-const DYN_SCALES = [1, 1, 0.93, 0.86, 0.8, 0.75, 0.75];
+/**
+ * Ladder rung -> resolution scale. Rung 1 only drops ambient occlusion; from rung 6 MSAA is halved,
+ * and the last rungs keep going down for laptop GPUs (an M1 Air still runs below 30 fps at 0.75).
+ */
+const DYN_SCALES = [1, 1, 0.93, 0.86, 0.8, 0.75, 0.75, 0.68, 0.6];
 const MSAA_LOW_RUNG = 6;
 const dynRes = { level: 0, avgMs: 16.7, cooldown: 0 };
 

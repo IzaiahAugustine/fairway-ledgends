@@ -171,9 +171,22 @@ function fallbackTemplate(kind: string): Template {
   return { parts, height: tall, radius: tall * 0.3 };
 }
 
+/** One kind's instances, drawn only where the camera can see them (or their shadows). */
+interface CullSet {
+  /** Bounding sphere per instance: x, y, z, radius. */
+  spheres: Float32Array;
+  meshes: { inst: THREE.InstancedMesh; all: Float32Array }[];
+  shown: Int32Array;
+  nShown: number;
+}
+
 export class Vegetation {
   readonly group = new THREE.Group();
   colliders: TreeCollider[] = [];
+  private cullSets: CullSet[] = [];
+  private frustum = new THREE.Frustum();
+  private viewProj = new THREE.Matrix4();
+  private sphere = new THREE.Sphere();
 
   async build(field: HoleField, quality: Quality, outer?: OuterWorld) {
     const templates = await getTemplates(quality);
@@ -194,6 +207,15 @@ export class Vegetation {
       const [kind, vs] = key.split('#');
       const tpl = templates.get(kind)?.[Number(vs)] ?? fallbackTemplate(kind);
       const tint = foliage && kind !== 'Tree_Pine' && kind.startsWith('Tree_') ? foliage[Number(vs) % foliage.length] : null;
+      // bounding spheres padded by about two tree heights, so a tree just out of view still casts
+      // its shadow into it
+      const spheres = new Float32Array(list.length * 4);
+      list.forEach((s, i) => {
+        const h = tpl.height * s.scale;
+        spheres.set([s.x, field.heightAt(s.x, s.z) + h * 0.5, s.z, Math.max(h * 0.5, tpl.radius * s.scale) + h * 2], i * 4);
+      });
+      const set: CullSet = { spheres, meshes: [], shown: new Int32Array(list.length).fill(-1), nShown: -1 };
+      this.cullSets.push(set);
       for (const part of tpl.parts) {
         const material = part.leaf && tint !== null ? autumnLeaf(part.material as THREE.MeshStandardMaterial, tint) : part.material;
         const inst = new THREE.InstancedMesh(part.geometry, material, list.length);
@@ -210,6 +232,7 @@ export class Vegetation {
         inst.receiveShadow = true;
         inst.computeBoundingSphere();
         inst.frustumCulled = true;
+        set.meshes.push({ inst, all: (inst.instanceMatrix.array as Float32Array).slice() });
         this.group.add(inst);
       }
       const dims = (tpl as Template).dims;
@@ -222,6 +245,43 @@ export class Vegetation {
     }
     this.buildObStakes(field);
     if (outer) await this.buildImpostors(outer, templates, quality, field.course.foliage);
+  }
+
+  /**
+   * Draw only the instances whose (shadow-padded) bounds are in view: on a typical hole most of
+   * the trees are behind or beside the camera, and each costs its full mesh in the main and shadow
+   * passes. Matrices are only re-uploaded when the visible set changes.
+   */
+  cull(camera: THREE.Camera) {
+    camera.updateMatrixWorld();
+    this.viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.viewProj);
+    const sp = this.sphere;
+    for (const set of this.cullSets) {
+      const S = set.spheres;
+      let k = 0, same = true;
+      for (let i = 0, n = S.length / 4; i < n; i++) {
+        sp.center.set(S[i * 4], S[i * 4 + 1], S[i * 4 + 2]);
+        sp.radius = S[i * 4 + 3];
+        if (!this.frustum.intersectsSphere(sp)) continue;
+        if (set.shown[k] !== i) {
+          set.shown[k] = i;
+          same = false;
+        }
+        k++;
+      }
+      if (same && k === set.nShown) continue;
+      set.nShown = k;
+      for (const m of set.meshes) {
+        const dst = m.inst.instanceMatrix.array as Float32Array;
+        for (let j = 0; j < k; j++) {
+          const i = set.shown[j];
+          dst.set(m.all.subarray(i * 16, i * 16 + 16), j * 16);
+        }
+        m.inst.count = k;
+        m.inst.instanceMatrix.needsUpdate = true;
+      }
+    }
   }
 
   /** Card trees in the band around the hole. */
@@ -293,5 +353,6 @@ export class Vegetation {
     });
     this.group.clear();
     this.colliders = [];
+    this.cullSets = [];
   }
 }

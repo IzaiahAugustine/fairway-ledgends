@@ -108,6 +108,9 @@ export class Golfer {
   /** Head orientation (model space) at the last pre-impact pose, eased out of after impact. */
   private headHold = new THREE.Quaternion();
   private headHeld = false;
+  /** Neck and head as the animation last posed them, before the chin lift / head hold. */
+  private neckBase: THREE.Quaternion | null = null;
+  private headBase: THREE.Quaternion | null = null;
   private tmpM = new THREE.Matrix4();
   private tmpQ = new THREE.Quaternion();
   private tmpV = new THREE.Vector3();
@@ -371,7 +374,13 @@ export class Golfer {
         b.setEffectiveWeight(w);
       }
     }
+    // the mixer only writes a bone when its animated value changes, so undo last frame's chin lift
+    // and head hold first; otherwise they pile up frame after frame and the head spins
+    if (this.neck && this.neckBase) this.neck.quaternion.copy(this.neckBase);
+    if (this.head && this.headBase) this.head.quaternion.copy(this.headBase);
     this.mixer.update(0);
+    if (this.neck) (this.neckBase ??= new THREE.Quaternion()).copy(this.neck.quaternion);
+    if (this.head) (this.headBase ??= new THREE.Quaternion()).copy(this.head.quaternion);
     if (this.neck && clip.startsWith('Swing_') && this.anim !== 'Putt' && this.anim !== 'Chip') {
       const tm = this.timing;
       // lift the chin a little so the face shows over the ball, as on tour; eases out after impact

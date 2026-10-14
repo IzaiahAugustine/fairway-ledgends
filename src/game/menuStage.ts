@@ -35,6 +35,7 @@ export class MenuStage {
   private demoBall: THREE.Mesh | null = null;
   private idle = true;
   private props: CourseProps | null = null;
+  private veg: Vegetation | null = null;
   private bagAt: [number, number, number, number] | null = null;
 
   constructor(renderer: THREE.WebGLRenderer) {
@@ -54,6 +55,7 @@ export class MenuStage {
     const veg = new Vegetation();
     this.scene.add(veg.group);
     await veg.build(field, quality, outer);
+    this.veg = veg;
     this.grass = new GrassField(field, course, tex, terrain.userData.maps, quality);
     this.scene.add(this.grass.group);
     const props = new CourseProps(this.scene);
@@ -243,6 +245,7 @@ export class MenuStage {
     camera.position.copy(this.camPos);
     camera.lookAt(this.camLook);
     this.grass?.update(camera, this.field.heightAt(camera.position.x, camera.position.z));
+    this.veg?.cull(camera);
     this.env.focus(s);
   }
 }
