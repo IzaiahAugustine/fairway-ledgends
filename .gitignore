@@ -12,3 +12,4 @@ blender/ai_models
 dist-poki
 dist-crazygames
 *.zip
+.firebase

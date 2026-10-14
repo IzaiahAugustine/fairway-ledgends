@@ -1,5 +1,17 @@
 {
   "projects": {
     "default": "fairway-legends-51e70"
+  },
+  "targets": {
+    "fairway-legends-51e70": {
+      "hosting": {
+        "game": [
+          "fairway-legends-51e70"
+        ],
+        "arcade": [
+          "augustinesarcade"
+        ]
+      }
+    }
   }
 }

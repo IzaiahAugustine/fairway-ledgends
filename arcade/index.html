@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Augustine's Arcade</title>
+<meta name="description" content="Free browser games by Augustine's Arcade. Play Fairway Legends: 3D golf against the computer or your friends online.">
+<meta property="og:title" content="Augustine's Arcade">
+<meta property="og:description" content="Play Fairway Legends: 3D golf in your browser, solo or against friends online.">
+<meta property="og:image" content="https://augustinesarcade.com/img/fairway-legends.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2311161f'/%3E%3Cpath d='M18 46 32 14l14 32h-7l-7-17-7 17Z' fill='%23f2c14e'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0b1016; --panel: #121a24; --edge: rgba(255, 255, 255, 0.09); --text: #e8eef3; --muted: #93a2ae;
+    --gold: #f2c14e; --gold-grad: linear-gradient(135deg, #ffe08a, #f2c14e 55%, #d9962a); --green: #1f6f43;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--ink); color: var(--text); font: 16px/1.6 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+  .wrap { width: min(1120px, 100% - 32px); margin: 0 auto; }
+
+  header { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); background: rgba(11, 16, 22, 0.78); border-bottom: 1px solid var(--edge); }
+  header .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 26px; letter-spacing: 0.02em; text-transform: uppercase; }
+  .brand svg { width: 34px; height: 34px; }
+  .brand span { background: var(--gold-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  nav a { margin-left: 22px; color: var(--muted); text-decoration: none; font-weight: 500; font-size: 15px; }
+  nav a:hover { color: var(--text); }
+
+  .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--edge); }
+  .hero::before { content: ''; position: absolute; inset: 0; background: url('img/fairway-legends.jpg') center 40% / cover no-repeat; }
+  .hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(11, 16, 22, 0.94) 0%, rgba(11, 16, 22, 0.75) 42%, rgba(11, 16, 22, 0.1) 75%), linear-gradient(0deg, var(--ink) 0%, rgba(11, 16, 22, 0) 30%); }
+  .hero .wrap { position: relative; z-index: 1; padding: clamp(64px, 12vw, 140px) 0 clamp(56px, 9vw, 110px); }
+  .kicker { font-size: 13px; font-weight: 600; letter-spacing: 0.28em; text-transform: uppercase; color: var(--gold); }
+  h1 { margin: 10px 0 14px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: clamp(54px, 9vw, 104px); line-height: 0.88; text-transform: uppercase; }
+  h1 span { display: block; background: var(--gold-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { max-width: 520px; margin: 0 0 30px; font-size: clamp(16px, 2vw, 19px); color: #c9d4dc; }
+  .cta { display: inline-flex; align-items: center; gap: 12px; padding: 16px 30px; border-radius: 14px; background: var(--gold-grad); color: #1b1405; text-decoration: none; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 24px; letter-spacing: 0.06em; text-transform: uppercase; box-shadow: 0 14px 34px -14px rgba(242, 193, 78, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.55); transition: transform 0.15s, filter 0.15s; }
+  .cta:hover { transform: translateY(-2px); filter: brightness(1.06); }
+  .cta svg { width: 22px; height: 22px; }
+  .sub-cta { display: block; margin-top: 14px; font-size: 14px; color: var(--muted); }
+
+  section { padding: clamp(48px, 7vw, 80px) 0; }
+  h2 { margin: 0 0 6px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: clamp(34px, 5vw, 46px); text-transform: uppercase; line-height: 1; }
+  .section-sub { margin: 0 0 30px; color: var(--muted); }
+
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+  .feature { padding: 22px; border-radius: 16px; background: var(--panel); border: 1px solid var(--edge); }
+  .feature b { display: block; margin-bottom: 4px; font-family: 'Barlow Condensed', sans-serif; font-size: 22px; letter-spacing: 0.02em; text-transform: uppercase; }
+  .feature p { margin: 0; color: var(--muted); font-size: 15px; }
+  .feature .ic { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: 12px; border-radius: 11px; color: var(--gold); background: rgba(242, 193, 78, 0.1); border: 1px solid rgba(242, 193, 78, 0.28); }
+  .feature .ic svg { width: 22px; height: 22px; }
+
+  .games { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+  .game { position: relative; overflow: hidden; display: flex; flex-direction: column; border-radius: 18px; background: var(--panel); border: 1px solid var(--edge); text-decoration: none; transition: transform 0.2s, border-color 0.2s; }
+  a.game:hover { transform: translateY(-3px); border-color: rgba(242, 193, 78, 0.6); }
+  .game .art { aspect-ratio: 16 / 9; background: center / cover no-repeat; }
+  .game .body { padding: 18px 20px 20px; }
+  .game h3 { margin: 0; font-family: 'Barlow Condensed', sans-serif; font-size: 28px; text-transform: uppercase; line-height: 1; }
+  .game p { margin: 6px 0 0; color: var(--muted); font-size: 15px; }
+  .game .tag { position: absolute; top: 12px; left: 12px; padding: 4px 10px; border-radius: 99px; background: rgba(0, 0, 0, 0.6); font-size: 11px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; }
+  .game.soon { border-style: dashed; }
+  .game.soon .art { display: grid; place-items: center; background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.025) 0 14px, transparent 14px 28px); font-family: 'Barlow Condensed', sans-serif; font-size: 22px; letter-spacing: 0.2em; color: var(--muted); text-transform: uppercase; }
+
+  footer { padding: 30px 0 40px; border-top: 1px solid var(--edge); color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: space-between; }
+  footer a { color: var(--muted); }
+
+  @media (max-width: 640px) {
+    nav a:not(.play) { display: none; }
+    .hero::after { background: linear-gradient(0deg, var(--ink) 0%, rgba(11, 16, 22, 0.82) 45%, rgba(11, 16, 22, 0.55) 100%); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <a class="brand" href="./" aria-label="Augustine's Arcade home">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#1a2330"/><path d="M18 46 32 14l14 32h-7l-7-17-7 17Z" fill="#f2c14e"/></svg>
+      Augustine's <span>Arcade</span>
+    </a>
+    <nav><a href="#games">Games</a><a href="#about">About</a><a class="play" href="https://golf.augustinesarcade.com">Play</a></nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <div class="wrap">
+      <div class="kicker">Now playing</div>
+      <h1>Fairway <span>Legends</span></h1>
+      <p class="lede">3D golf in your browser. Five courses from Caribbean beaches to Rocky Mountain peaks, a career to climb, and online matches against your friends.</p>
+      <a class="cta" href="https://golf.augustinesarcade.com">Play free
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z"/></svg></a>
+      <span class="sub-cta">No download, no sign-up. Works best on a computer with a mouse.</span>
+    </div>
+  </div>
+
+  <section id="about">
+    <div class="wrap">
+      <h2>Fairway Legends</h2>
+      <p class="section-sub">Everything you'd want from a round of golf, right in your browser.</p>
+      <div class="features">
+        <div class="feature"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.5 3.9 5.5 3.9 9s-1.3 6.5-3.9 9c-2.6-2.5-3.9-5.5-3.9-9s1.3-6.5 3.9-9Z"/></svg></div><b>Play your friends</b><p>Create a match, send the link, and take turns. You watch every one of their shots live.</p></div>
+        <div class="feature"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="m5 20 5-9 3 5 2-3 4 7"/><circle cx="17" cy="6" r="2"/></svg></div><b>Five courses</b><p>Coral Cove, Summit Peaks, Red Mesa, Thunder Bluffs and Maple Hollow, plus a driving range.</p></div>
+        <div class="feature"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0Z"/><path d="M17 5h3v2a3 3 0 0 1-3 3"/><path d="M7 5H4v2a3 3 0 0 0 3 3"/></svg></div><b>Career mode</b><p>Win your way from the club championship to the Legends Final, earning XP for every good shot.</p></div>
+        <div class="feature"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7.6" r="3.4"/><path d="M4.8 21c.7-4.3 3.6-7 7.2-7s6.5 2.7 7.2 7"/></svg></div><b>Your golfer</b><p>Choose your look, face and swing style, then upgrade your clubs as you level up.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="games">
+    <div class="wrap">
+      <h2>Games</h2>
+      <p class="section-sub">Free to play in your browser.</p>
+      <div class="games">
+        <a class="game" href="https://golf.augustinesarcade.com">
+          <div class="art" style="background-image: url('img/fairway-legends.jpg')"></div>
+          <span class="tag">3D Golf</span>
+          <div class="body"><h3>Fairway Legends</h3><p>Match play, stroke play and skins against the computer or a friend online.</p></div>
+        </a>
+        <div class="game soon">
+          <div class="art">Coming soon</div>
+          <div class="body"><h3>Next game</h3><p>Something new is on the way.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Augustine's Arcade</span>
+    <span><a href="https://golf.augustinesarcade.com/privacy.html">Privacy</a></span>
+  </div>
+</footer>
+</body>
+</html>

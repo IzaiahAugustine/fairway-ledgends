@@ -5,15 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fairway Legends</title>
     <script>
-      // The game moved from GitHub Pages to its own host. Anyone opening the old address is
-      // forwarded, carrying their progress (saved per site address) and any invite code along.
+      // The game's home is golf.augustinesarcade.com. Anyone opening an older address (GitHub
+      // Pages, the Firebase .web.app one) is forwarded there with their progress, which is saved
+      // per site address, and any invite code.
       (function () {
-        if (!/github\.io$/.test(location.hostname)) return;
-        var to = 'https://fairway-legends-51e70.web.app/' + location.search;
-        try {
-          var raw = localStorage.getItem('fairwayLegends.save.v1');
-          if (raw) to += '#transfer=' + encodeURIComponent(btoa(unescape(encodeURIComponent(raw))));
-        } catch (e) {}
+        var h = location.hostname;
+        if (!/github\.io$/.test(h) && !/^fairway-legends-51e70\.(web\.app|firebaseapp\.com)$/.test(h)) return;
+        var to = 'https://golf.augustinesarcade.com/' + location.search;
+        if (/^#transfer=/.test(location.hash)) to += location.hash;
+        else
+          try {
+            var raw = localStorage.getItem('fairwayLegends.save.v1');
+            if (raw) to += '#transfer=' + encodeURIComponent(btoa(unescape(encodeURIComponent(raw))));
+          } catch (e) {}
         location.replace(to);
       })();
     </script>
