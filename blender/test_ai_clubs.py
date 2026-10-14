@@ -38,7 +38,8 @@ bsdf.inputs['Alpha'].default_value = 0.35
 red.surface_render_method = 'BLENDED'
 
 CAND = '--candidates' in sys.argv
-for name, k in [(n, k) for n in K.CLUBS for k in (range(8) if CAND else [None])]:
+ONLY = [a for a in sys.argv[sys.argv.index('--') + 1:] if not a.startswith('--')] if '--' in sys.argv else []
+for name, k in [(n, k) for n in (ONLY or K.CLUBS) for k in (range(8) if CAND else [None])]:
     if k is not None:
         AIC.CHOICE[name] = k
     K.USE_AI_HEADS = False

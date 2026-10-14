@@ -140,10 +140,12 @@ def _import(name):
 
 # Index into candidates() of the orientation picked for each head, chosen by eye from the
 # face-on renders of every candidate (blender/test_ai_clubs.py --candidates).
-CHOICE = {'Driver': 0, 'Wood': 0, 'Hybrid': 2, 'Iron': 1, 'Wedge': 3, 'Putter': 0}
-# The generated hybrid sits rolled toe-up and the wedge's tall toe gets clipped by the hosel trim,
-# so those two keep their procedural heads.
-AI_CLUBS = ('Driver', 'Wood', 'Iron', 'Putter')
+CHOICE = {'Driver': 0, 'Wood': 0, 'Hybrid': 0, 'Iron': 1, 'Wedge': 3, 'Putter': 0}
+# Per-club radius around the hosel axis within which the generated hosel is trimmed (metres).
+CLIP_R = {}
+# The generated hybrid has no orientation that seats it (face up or rolled toe-up in every
+# candidate), so it keeps its procedural head.
+AI_CLUBS = ('Driver', 'Wood', 'Iron', 'Wedge', 'Putter')
 
 
 def candidates(name, hp):
@@ -161,13 +163,18 @@ def fit(name, proc, head_pts, gen, kd, hp, s0, k):
     return _icp(head_pts, kd, gen, R, s, t, iters=60, keep_fwd=0.9, keep_bwd=0.6)
 
 
-def _clip_above(ob, z):
-    """Drop the generated hosel / shaft stub above z (address frame); the procedural hosel and
-    shaft take over from there."""
+def _clip_above(ob, z, hosel_xy, r=0.03):
+    """Drop the generated hosel / shaft stub above z (address frame) near the hosel; the
+    procedural hosel and shaft take over from there. Only around the hosel, so a tall toe
+    (wedge) keeps its top."""
     import bmesh
     bm = bmesh.new()
     bm.from_mesh(ob.data)
-    bmesh.ops.delete(bm, geom=[f for f in bm.faces if max(v.co.z for v in f.verts) > z], context='FACES')
+    hx, hy = hosel_xy
+
+    def cut(f):
+        return any(v.co.z > z and (v.co.x - hx) ** 2 + (v.co.y - hy) ** 2 < r * r for v in f.verts)
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if cut(f)], context='FACES')
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
     bm.to_mesh(ob.data)
     bm.free()
@@ -203,7 +210,8 @@ def replace_head(name, head, hosel_base, hosel_top, face_normal=None):
             M[i][j] = Ri[i, j]
         M[i][3] = -(Ri @ t)[i]
     ai.data.transform(M)
-    _clip_above(ai, head_pts[:, 2].max() + 0.004)
+    # above the heel's height around the hosel axis (the hosel base sits at the heel)
+    _clip_above(ai, b[2] + 0.012, (b[0], b[1]), CLIP_R.get(name, 0.03))
     ai.name = head.name
     for slot in ai.material_slots:
         if slot.material:

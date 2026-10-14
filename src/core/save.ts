@@ -30,7 +30,11 @@ export interface Appearance {
   shirtAccent: string;
   ball: string;
   clubFinish: string;
+  /** Face texture (Artlist-painted variants of the head's skin map); standard when absent. */
+  face?: FaceStyle;
 }
+
+export type FaceStyle = 'Standard' | 'Beard' | 'Older' | 'Freckles';
 
 export interface SaveData {
   version: 1;

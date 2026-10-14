@@ -85,6 +85,7 @@ export function makeOpponent(seed: number, personality?: string): Opponent {
       shirtAccent: rng.pick(['#111111', '#f2f2f2', '#0b3d91', '#b5121b', '#f2c14e']),
       ball: 'white',
       clubFinish: rng.pick(['standard', 'standard', 'black']),
+      face: rng.pick(['Standard', 'Beard', 'Older', 'Freckles'] as const),
     },
   };
 }

@@ -22,6 +22,7 @@ import './ui/style.css';
 import { AtmospherePass } from './world/atmosphere';
 import { SkyEnvironment } from './world/environment';
 import { setImpostorRenderer } from './world/impostors';
+import { setHiResTextures } from './core/assets';
 
 const canvas = document.getElementById('gl') as HTMLCanvasElement;
 const uiRoot = document.getElementById('ui') as HTMLElement;
@@ -267,11 +268,13 @@ function autoLowerQuality(frameMs: number, slow: number) {
   st.quality = st.quality === 'high' ? 'medium' : 'low';
   persist();
   courseEnv.setQuality(st.quality);
+  setHiResTextures(false);
   hud.showBanner('SMOOTHER GRAPHICS', `Switched to ${st.quality === 'medium' ? 'Medium' : 'Low'} quality from the next hole · change it in Settings`, '', 3200);
 }
 
 function applyQuality() {
   const q = save.settings.quality;
+  setHiResTextures(q === 'high');
   dynRes.level = 0;
   dynRes.cooldown = 2;
   renderer.setPixelRatio(targetPixelRatio());

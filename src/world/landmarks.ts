@@ -8,10 +8,10 @@ import { Rng } from '../core/rng';
 import type { TreeCollider } from '../physics/ballPhysics';
 import { HoleField, Surf } from './holeGen';
 
-type Kind = 'clubhouse' | 'lighthouse' | 'saguaro' | 'bridge';
+type Kind = 'clubhouse' | 'lighthouse' | 'saguaro' | 'bridge' | 'cart' | 'halfway' | 'teesign';
 
 /** Real-world size of each model's longest dimension, metres. */
-const SIZE: Record<Kind, number> = { clubhouse: 34, lighthouse: 26, saguaro: 9, bridge: 24 };
+const SIZE: Record<Kind, number> = { clubhouse: 34, lighthouse: 26, saguaro: 9, bridge: 24, cart: 2.7, halfway: 10, teesign: 1.9 };
 
 interface Ground {
   heightAt(x: number, z: number): number;
@@ -23,7 +23,7 @@ export class Landmarks {
   private templates = new Map<Kind, THREE.Object3D>();
 
   async init() {
-    const kinds: Kind[] = ['clubhouse', 'lighthouse', 'saguaro', 'bridge'];
+    const kinds: Kind[] = ['clubhouse', 'lighthouse', 'saguaro', 'bridge', 'cart', 'halfway', 'teesign'];
     await Promise.all(
       kinds.map(async (k) => {
         const gltf = await loadGLTF(`models/ai/${k}.glb`);
@@ -68,6 +68,9 @@ export class Landmarks {
     const rng = new Rng(seed);
     const last = field.index === holeCount - 1;
     if (field.index === 0 || last) this.placeClubhouse(field, ground, last);
+    // the halfway house after the front nine
+    if (holeCount >= 18 && field.index === 8) this.placeHalfway(field, ground);
+    this.placeTeeFurniture(field, ground, rng);
     if (course.id === 'coral-cove' && field.hasOcean) this.placeLighthouse(field, ground);
     if (course.id === 'red-mesa') this.placeSaguaros(field, ground, rng);
     if (course.id === 'maple-hollow') this.placeBridge(field, ground);
@@ -121,6 +124,42 @@ export class Landmarks {
         const rot = Math.atan2(-(anchor.z - z), anchor.x - x);
         const p = this.add('clubhouse', x, z, rot, ground, 1, 0.4);
         if (p) this.colliders.push({ x, z, base: p.y, trunkR: 13, crownY: p.y + 10, crownR: 0.1, crownH: 0.1 });
+        return;
+      }
+    }
+  }
+
+  /** A tee sign beside the tee box facing the player walking up, and a cart parked off the side. */
+  private placeTeeFurniture(field: HoleField, ground: Ground, rng: Rng) {
+    const t = field.teeDir;
+    const tee = field.tee;
+    const side = field.index % 2 ? 1 : -1;
+    // sign: by the back corner of the tee, its face (+X) turned to the tee box
+    const sx = tee.x - t.x * 4 - t.z * 7 * side, sz = tee.z - t.z * 4 + t.x * 7 * side;
+    if (field.surfAt(sx, sz) !== Surf.Bunker && field.surfAt(sx, sz) !== Surf.Water)
+      this.add('teesign', sx, sz, Math.atan2(-(tee.z - sz), tee.x - sx), ground, 1, 0.05);
+    // cart: parked on the path behind the tee (clear of the gallery lining its sides), pointing
+    // down the hole (+X forward)
+    for (const [back, off] of [[20, 6], [26, 10], [32, 4]]) {
+      const lat = off * -side + rng.range(-1.5, 1.5);
+      const cx = tee.x - t.x * back + t.z * lat, cz = tee.z - t.z * back - t.x * lat;
+      if (!this.clear_(field, ground, cx, cz, 2, 9)) continue;
+      const p = this.add('cart', cx, cz, Math.atan2(-t.z, t.x) + rng.range(-0.25, 0.25), ground, 1, 0.02);
+      if (p) this.colliders.push({ x: cx, z: cz, base: p.y, trunkR: 1.1, crownY: p.y + 1.9, crownR: 0.1, crownH: 0.1 });
+      break;
+    }
+  }
+
+  private placeHalfway(field: HoleField, ground: Ground) {
+    // beside the 9th green, its serving window (+Z) toward the green
+    const t = field.tangentAt(field.length - 2);
+    for (const side of [1, -1]) {
+      for (const [b, l] of [[25, 32], [10, 40], [40, 30], [20, 50]]) {
+        const x = field.green.x + t.x * b - t.z * l * side;
+        const z = field.green.z + t.z * b + t.x * l * side;
+        if (!this.clear_(field, ground, x, z, 7, 26)) continue;
+        const p = this.add('halfway', x, z, Math.atan2(field.green.x - x, field.green.z - z), ground, 1, 0.2);
+        if (p) this.colliders.push({ x, z, base: p.y, trunkR: 4.5, crownY: p.y + 5, crownR: 0.1, crownH: 0.1 });
         return;
       }
     }

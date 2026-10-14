@@ -34,17 +34,29 @@ function averageColor(img: HTMLImageElement | ImageBitmap): THREE.Color {
   return new THREE.Color(r / n, g / n, b / n);
 }
 
+let hiRes = false;
+/** High quality: terrain textures shipped at 2K load as "_2k" instead of "_1k". */
+export function setHiResTextures(on: boolean) {
+  hiRes = on;
+}
+export const hiResTextures = () => hiRes;
+
 export function loadTexture(name: string, srgb = true, maxAniso = 16): Promise<TexInfo> {
-  const key = `${name}|${srgb}`;
+  const file = hiRes ? name.replace(/_1k\.jpg$/, '_2k.jpg') : name;
+  const key = `${file}|${srgb}`;
   let p = texCache.get(key);
   if (!p) {
-    p = texLoader.loadAsync(`assets/textures/${name}`).then((tex) => {
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-      tex.anisotropy = maxAniso;
-      const avg = srgb ? averageColor(tex.image as HTMLImageElement) : new THREE.Color(0.5, 0.5, 0.5);
-      return { tex, avg };
-    });
+    // a missing 2K file falls back to the 1K one
+    p = texLoader
+      .loadAsync(`assets/textures/${file}`)
+      .catch((e) => (file !== name ? texLoader.loadAsync(`assets/textures/${name}`) : Promise.reject(e)))
+      .then((tex) => {
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+        tex.anisotropy = maxAniso;
+        const avg = srgb ? averageColor(tex.image as HTMLImageElement) : new THREE.Color(0.5, 0.5, 0.5);
+        return { tex, avg };
+      });
     texCache.set(key, p);
   }
   return p;

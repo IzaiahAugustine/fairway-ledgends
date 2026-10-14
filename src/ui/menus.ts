@@ -6,7 +6,7 @@ import '@fontsource/barlow-condensed/800.css';
 import '@fontsource-variable/inter';
 import { sfx } from '../audio/sfx';
 import { toYards } from '../core/rng';
-import { persist, playerLevel, resetSave, save, type Appearance, type Difficulty, type TextSize } from '../core/save';
+import { persist, playerLevel, resetSave, save, type Appearance, type Difficulty, type FaceStyle, type TextSize } from '../core/save';
 import { CLUBS, MAX_TIER, SHOT_TYPES, TIERS, upgradeCost } from '../data/clubs';
 import { BALL_COLORS, CLUB_FINISHES, SHIRT_PATTERNS, type Unlock } from '../data/cosmetics';
 import { COURSES, DRIVING_RANGE, HOLE_SETS, courseById, courseForSet, coursePar, courseYards, type CourseDef, type HoleSet } from '../data/courses';
@@ -799,6 +799,7 @@ export class Menus {
     sec('Appearance');
     swatchField('Skin tone', 'skin', SKIN);
     chipField('Hair style', ['Short', 'Long', 'None'] as const as unknown as Appearance['hairStyle'][], () => a.hairStyle, (v) => (a.hairStyle = v));
+    chipField('Face', ['Standard', 'Beard', 'Older', 'Freckles'] as FaceStyle[], () => a.face ?? 'Standard', (v) => (a.face = v));
     swatchField('Hair colour', 'hair', HAIR);
     sec('Apparel');
     chipField('Headwear', ['Cap', 'Visor', 'Bucket', 'None'] as Appearance['hat'][], () => a.hat, (v) => (a.hat = v));

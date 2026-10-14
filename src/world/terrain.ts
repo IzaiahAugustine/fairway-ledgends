@@ -2,7 +2,7 @@
 // coverage (grain-dependent mowing stripes, first cut, fringe, raked bunkers, fescue, triplanar
 // cliffs), water surfaces and the land beyond the hole.
 import * as THREE from 'three';
-import { loadTexture, makeNoiseTexture, makeWaterNormals } from '../core/assets';
+import { hiResTextures, loadTexture, makeNoiseTexture, makeWaterNormals } from '../core/assets';
 import { traits, type CourseDef } from '../data/courses';
 import { HoleField } from './holeGen';
 
@@ -20,8 +20,11 @@ export interface TerrainTextures {
 }
 
 let texPromise: Promise<TerrainTextures> | null = null;
+let texPromiseHiRes = false;
 export function loadTerrainTextures(): Promise<TerrainTextures> {
-  if (!texPromise) {
+  // reload when the quality setting switched texture resolution since the last load
+  if (!texPromise || texPromiseHiRes !== hiResTextures()) {
+    texPromiseHiRes = hiResTextures();
     texPromise = Promise.all([
       loadTexture('grass005_diff_1k.jpg'),
       loadTexture('grass004_diff_1k.jpg'),

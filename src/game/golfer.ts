@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { clubFinish, shirtPatternCode } from '../data/cosmetics';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { loadGLTF } from '../core/assets';
-import type { Appearance } from '../core/save';
+import type { Appearance, FaceStyle } from '../core/save';
 import { TIERS, type SwingAnim } from '../data/clubs';
 
 export interface SwingTiming {
@@ -34,6 +34,23 @@ const DEFAULT_BALL: Record<SwingAnim, THREE.Vector3> = {
   Putt: new THREE.Vector3(0.045, 0.0213, 0.445),
 };
 
+/** Face variants share the head's UV layout, so they drop straight in as the skin map. */
+const faceLoader = new THREE.TextureLoader();
+const faceMaps = new Map<FaceStyle, Promise<THREE.Texture>>();
+function faceMap(f: FaceStyle): Promise<THREE.Texture> {
+  let p = faceMaps.get(f);
+  if (!p) {
+    p = faceLoader.loadAsync(`assets/golfer/faces/${f.toLowerCase()}.jpg`).then((t) => {
+      t.flipY = false; // glTF UV convention, as the map it replaces
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 8;
+      return t;
+    });
+    faceMaps.set(f, p);
+  }
+  return p;
+}
+
 type Phase = 'address' | 'backswing' | 'downswing' | 'follow' | 'hold' | 'clip';
 
 /**
@@ -47,24 +64,27 @@ function skinShading(m: THREE.MeshStandardMaterial) {
       `reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );
       float sssNL = dot( geometryNormal, directLight.direction );
       float sssWrap = saturate( ( sssNL + 0.45 ) / 1.45 ) - saturate( sssNL );
-      reflectedLight.directDiffuse += sssWrap * directLight.color * BRDF_Lambert( material.diffuseColor ) * vec3( 0.9, 0.38, 0.22 );`,
+      reflectedLight.directDiffuse += sssWrap * directLight.color * BRDF_Lambert( material.diffuseColor ) * vec3( 0.55, 0.3, 0.2 );`,
     );
     s.fragmentShader = s.fragmentShader
       .replace('#include <lights_physical_pars_fragment>', direct)
-      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.indirectDiffuse *= vec3( 1.1, 0.96, 0.9 );');
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.indirectDiffuse *= vec3( 1.04, 0.99, 0.95 );');
   };
   m.customProgramCacheKey = () => 'golfer-skin';
 }
 
-/** Wet eyes reflect less sky than a mirror, and the sclera darkens toward the lids. */
+/**
+ * Wet eyes reflect less sky than a mirror (at full strength the whites mirror the blue sky and
+ * read as glassy blue), the sclera is an off-white, and it darkens toward the lids.
+ */
 function eyeShading(m: THREE.MeshStandardMaterial) {
-  m.envMapIntensity = 0.55;
+  m.envMapIntensity = 0.18;
   m.onBeforeCompile = (s) => {
     s.fragmentShader = s.fragmentShader.replace(
       '#include <map_fragment>',
       `#include <map_fragment>
       #ifdef USE_MAP
-        diffuseColor.rgb *= mix( 1.0, 0.72, smoothstep( 0.2, 0.42, length( vMapUv - 0.5 ) ) );
+        diffuseColor.rgb *= vec3( 0.9, 0.86, 0.82 ) * mix( 1.0, 0.62, smoothstep( 0.16, 0.42, length( vMapUv - 0.5 ) ) );
       #endif`,
     );
   };
@@ -240,6 +260,25 @@ export class Golfer {
     for (const a of Object.keys(DEFAULT_BALL) as SwingAnim[]) this.ballOffsets.set(a, DEFAULT_BALL[a].clone());
   }
 
+  private standardFace: THREE.Texture | null | undefined;
+  private faceReq = 0;
+
+  private applyFace(f: FaceStyle) {
+    const skin = this.mats.get('Skin');
+    if (!skin?.length) return;
+    if (this.standardFace === undefined) this.standardFace = skin[0].map;
+    const req = ++this.faceReq;
+    const set = (t: THREE.Texture | null) => {
+      if (req !== this.faceReq) return; // a later choice won the race
+      for (const m of skin) {
+        m.map = t;
+        m.needsUpdate = true;
+      }
+    };
+    if (f === 'Standard') set(this.standardFace);
+    else faceMap(f).then(set, () => set(this.standardFace ?? null));
+  }
+
   applyAppearance(a: Appearance) {
     const set = (name: string, hex: string) => this.mats.get(name)?.forEach((m) => m.color.set(hex));
     set('Skin', a.skin);
@@ -249,6 +288,7 @@ export class Golfer {
     set('Shoes', a.shoes);
     set('Belt', a.belt);
     set('Hat', a.hatColor);
+    this.applyFace(a.face ?? 'Standard');
     for (const [n, o] of this.variants) {
       if (n.startsWith('Hat_')) o.visible = a.hat !== 'None' && n === `Hat_${a.hat}`;
       else if (n.startsWith('Hair_')) o.visible = a.hairStyle !== 'None' && n === `Hair_${a.hairStyle}`;
