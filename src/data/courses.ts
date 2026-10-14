@@ -212,7 +212,8 @@ export const COURSES: CourseDef[] = [
     windMin: 3,
     windMax: 12,
     altitude: 2440,
-    rock: 0x7a7570,
+    // granite dark enough for the snowcaps to stand out against the faces
+    rock: 0x5a5550,
     sea: { shallow: 0x3a8a8a, deep: 0x0a3446 },
     colors: { fairway: 0x5f9e36, rough: 0x4c822e, green: 0x55a03c, deep: 0x557a36, sand: 0xe6dcc6, fescue: 0x8a9a52 },
     holes: [

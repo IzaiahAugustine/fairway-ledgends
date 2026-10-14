@@ -24,7 +24,7 @@ const RINGS = (() => {
   let d = 3;
   while (d < 7000) {
     r.push(d);
-    d = d * 1.065 + 3;
+    d = d * 1.04 + 3;
   }
   return r;
 })();
@@ -148,9 +148,14 @@ export class OuterWorld {
     const style = this.course.style;
     if (style === 'alpine') {
       // jagged peaks: sharp ridgelines on top of the massif, always some mountains in view
-      const crest = n.ridged(wx * 0.0008 + 3.1, wz * 0.0008 - 6.2, 4);
+      // broad massifs with ridged crests (sharper crests only faceted into cones on the far mesh)
+      const crest = n.ridged(wx * 0.0007 + 3.1, wz * 0.0007 - 6.2, 4);
       const mass = 0.35 + 0.65 * body;
-      h += L.ridge * inland * mass * (0.3 + 0.7 * Math.pow(crest, 1.6));
+      const shoulder = smoothstep(0.1, 0.9, crest);
+      h += L.ridge * inland * mass * (0.32 + 0.48 * shoulder + 0.2 * crest * crest);
+      // rocky spurs and gullies down the faces, so peaks read as mountains rather than cones
+      const spur = n.ridged(wx * 0.0028 - 7.7, wz * 0.0028 + 2.9, 3) - 0.5;
+      h += L.ridge * 0.16 * inland * mass * shoulder * spur;
     } else if (style === 'desert') {
       // mesas and buttes: flat tops on sheer sides, in bands of rock
       const raw = L.ridge * inland * body * (0.75 + 0.25 * n.ridged(wx * 0.002, wz * 0.002, 2));

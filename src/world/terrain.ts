@@ -480,10 +480,11 @@ export function makePondMaterial(t: TerrainTextures, heights: THREE.Texture, fie
         vec2 huv = ((vWw.xz - uField.xy) / 0.5 + 0.5) / uField.zw;
         float depth = vWw.y - texture2D(tH, huv).r;
         if (depth < -0.05) discard;
-        vec3 shallow = vec3(0.09, 0.12, 0.07);
-        vec3 deep = vec3(0.01, 0.03, 0.025);
-        diffuseColor.rgb = mix(shallow, deep, smoothstep(0.0, 1.6, depth));
-        diffuseColor.a = mix(0.2, 0.96, smoothstep(0.0, 0.9, depth));
+        // clear green-blue over the shelf, deep teal further out (was a murky olive grey)
+        vec3 shallow = vec3(0.07, 0.15, 0.12);
+        vec3 deep = vec3(0.006, 0.04, 0.055);
+        diffuseColor.rgb = mix(shallow, deep, smoothstep(0.0, 1.4, depth));
+        diffuseColor.a = mix(0.35, 0.97, smoothstep(0.0, 0.7, depth));
         float n = texture2D(tNoise, vWw.xz * 0.35 + uTime * 0.02).g;
         gEdgeFoam = smoothstep(0.12, 0.0, depth) * smoothstep(0.4, 0.7, n) * 0.5;
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.52, 0.48), gEdgeFoam);
@@ -495,7 +496,7 @@ export function makePondMaterial(t: TerrainTextures, heights: THREE.Texture, fie
          mapN = normalize(vec3(mapN.xy * 0.6, 2.0));`,
       );
   };
-  mat.customProgramCacheKey = () => 'water-pond-v2';
+  mat.customProgramCacheKey = () => 'water-pond-v3';
   return mat;
 }
 
