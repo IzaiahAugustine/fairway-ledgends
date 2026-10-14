@@ -102,8 +102,8 @@ export class Golfer {
   private neck: THREE.Object3D | null = null;
   /** Chin lift (radians) on full swings: eyes on the ball without burying the chin. */
   static CHIN_LIFT = 0.13;
-  /** Seconds (clip time) over which the head comes up after impact to watch the ball. */
-  static HEAD_RELEASE = 0.55;
+  /** Seconds over which the head comes up after impact to watch the ball. */
+  static HEAD_RELEASE = 0.7;
   private head: THREE.Object3D | null = null;
   /** Head orientation (model space) at the last pre-impact pose, eased out of after impact. */
   private headHold = new THREE.Quaternion();
@@ -385,7 +385,10 @@ export class Golfer {
           this.modelQuat(head, this.headHold);
           this.headHeld = true;
         } else if (this.headHeld) {
-          const u = Math.min(1, (time - tm.impact) / Golfer.HEAD_RELEASE);
+          // real seconds since impact while playing (the follow-through runs faster than the
+          // clip), clip time when a pose is set directly
+          const since = this.phase === 'follow' ? this.followElapsed : time - tm.impact;
+          const u = Math.min(1, since / Golfer.HEAD_RELEASE);
           const hold = 1 - u * u * (3 - 2 * u);
           if (hold > 0) {
             const want = this.modelQuat(head.parent, this.tmpQ).invert().multiply(this.headHold);
