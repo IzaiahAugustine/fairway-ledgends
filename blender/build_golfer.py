@@ -279,6 +279,8 @@ def export_glb(arm, path=GLB_PATH):
         export_materials='EXPORT', export_image_format='AUTO', export_cameras=False, export_lights=False,
         export_extras=False, use_selection=False, use_visible=False, export_leaf_bone=False,
         export_rest_position_armature=True, export_anim_slide_to_zero=False, export_bake_animation=False)
+    import golfer_ai_tex
+    golfer_ai_tex.patch_glb(path)
     print("exported", path, os.path.getsize(path))
 
 

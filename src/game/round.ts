@@ -13,6 +13,7 @@ import { SkyEnvironment } from '../world/environment';
 import { HoleField, SURF_NAME, Surf } from '../world/holeGen';
 import { AimOverlay, GreenGrid } from '../world/overlays';
 import { Ball, CourseProps } from '../world/props';
+import { Landmarks } from '../world/landmarks';
 import { buildTerrainMesh, cloudUniforms, loadTerrainTextures, terrainSurfaceAt, terrainTime } from '../world/terrain';
 import { GrassField } from '../world/grass';
 import { Divots } from '../world/divots';
@@ -104,6 +105,7 @@ export class Round {
   private rain: Rain | null = null;
   private birds = new Birds();
   private crowd = new Crowd();
+  private landmarks = new Landmarks();
   private overlay: AimOverlay;
   private grid: GreenGrid;
   private cam: CameraDirector;
@@ -173,7 +175,7 @@ export class Round {
     this.overlay = new AimOverlay(scene);
     this.grid = new GreenGrid(scene);
     this.cam = new CameraDirector(camera);
-    this.scene.add(this.veg.group, this.birds.group, this.crowd.group);
+    this.scene.add(this.veg.group, this.birds.group, this.crowd.group, this.landmarks.group);
     this.swing = new SwingInput(canvas, {
       onBackswing: (f) => this.onBackswing(f),
       onDownswing: () => {},
@@ -219,6 +221,7 @@ export class Round {
     await this.props.init();
     await this.divots.init();
     await this.crowd.init();
+    await this.landmarks.init();
     await loadTerrainTextures();
     this.hud.show(true);
     this.hud.setHelp(false, save.settings.swingMode);
@@ -253,7 +256,8 @@ export class Round {
     this.grass = new GrassField(field, course, tex, this.terrain.userData.maps, q);
     this.scene.add(this.grass.group);
     await this.veg.build(field, q, this.outer ?? undefined);
-    this.treeIndex = new TreeIndex(this.veg.colliders);
+    this.landmarks.place(field, this.outer, course.holes.length, this.cfg.seed + i * 61);
+    this.treeIndex = new TreeIndex([...this.veg.colliders, ...this.landmarks.colliders]);
     this.mulliganUsed = false;
     this.lastShot = null;
     // birds over the hole (fewer in the rain)
@@ -1581,6 +1585,8 @@ export class Round {
     this.rain = null;
     this.birds.dispose();
     this.crowd.dispose();
+    this.landmarks.dispose();
+    this.scene.remove(this.landmarks.group);
     this.rangeTargets?.dispose();
     this.rangeTargets = null;
     sfx.setRain(false);

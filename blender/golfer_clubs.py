@@ -16,7 +16,11 @@ import bmesh
 from mathutils import Vector, Matrix
 
 import golfer_common as C
+import golfer_ai_clubs as AIC
 from golfer_skeleton import club_rest_matrix
+
+# detailed Artlist-generated heads (public/models/ai/*.glb) registered onto the procedural ones
+USE_AI_HEADS = True
 
 INCH = 0.0254
 GRIP_FROM_BUTT = 0.110
@@ -279,6 +283,9 @@ def build_club(name):
     for p in head.data.polygons:
         p.use_smooth = wood and p.material_index not in face_idx
     HEAD_POINTS[name] = [v.co.copy() for v in head.data.vertices]
+    if USE_AI_HEADS:
+        head = AIC.replace_head(name, head, base, top,
+                                Vector((math.cos(math.radians(loft)), 0.0, math.sin(math.radians(loft)))))
     club = C.join([head, hosel, shaft, grip], full)
     # map A -> bone local -> world rest
     M = club_rest_matrix() @ A_to_bone(name)
