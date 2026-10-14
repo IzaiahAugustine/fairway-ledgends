@@ -98,6 +98,9 @@ function keepFocus(render: () => void) {
 const NAV = 'button:not([disabled]), .nav, input[type=range]';
 const DIRS: Record<string, [number, number]> = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
 
+/** Course key art (public/assets/courses/<id>.jpg, 16:10), shared by every card that shows it. */
+const COURSE_ART = new Map<string, HTMLImageElement>();
+
 function courseArt(c: CourseDef): HTMLCanvasElement {
   const cv = h('canvas', { width: '480', height: '300' });
   const ctx = cv.getContext('2d')!;
@@ -239,6 +242,17 @@ function courseArt(c: CourseDef): HTMLCanvasElement {
   ctx.lineTo(362, 203);
   ctx.lineTo(338, 210);
   ctx.fill();
+  // key art for the course, painted over the sketch once it has loaded (the sketch stays if not)
+  const img = COURSE_ART.get(c.id) ?? new Image();
+  if (!COURSE_ART.has(c.id)) {
+    img.src = `assets/courses/${c.id}.jpg`;
+    COURSE_ART.set(c.id, img);
+  }
+  const paint = () => {
+    if (img.naturalWidth) ctx.drawImage(img, 0, 0, 480, 300);
+  };
+  if (img.complete) paint();
+  else img.addEventListener('load', paint, { once: true });
   return cv;
 }
 

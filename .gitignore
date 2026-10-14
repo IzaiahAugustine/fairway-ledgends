@@ -7,3 +7,6 @@ blender/__pycache__
 .shots
 .preview-dist
 blender/renders
+
+# multi-megabyte scan straight from the generator (rebuild input for blender/import_golfer_scan.py)
+blender/sources/golfer_scan_source.glb

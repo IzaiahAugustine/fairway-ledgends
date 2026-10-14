@@ -298,7 +298,8 @@ export class CourseProps {
   async init() {
     if (this.loaded) return;
     this.loaded = true;
-    const gltf = await loadGLTF('models/environment.glb');
+    // the photoreal golf bag (blender/import_golf_bag.py) replaces the modelled one when present
+    const [gltf, bagGltf] = await Promise.all([loadGLTF('models/environment.glb'), loadGLTF('models/golf_bag.glb')]);
     const find = (n: string) => gltf?.scene.getObjectByName(n) ?? null;
     const pole = find('Flagstick');
     const flag = find('Flag');
@@ -373,7 +374,7 @@ export class CourseProps {
       this.teeMarkers.push(m);
       this.group.add(m);
     }
-    this.bagTemplate = find('GolfBag');
+    this.bagTemplate = bagGltf?.scene.getObjectByName('GolfBag') ?? find('GolfBag');
     this.teePegTemplate = find('Tee');
     if (this.bagTemplate) {
       this.bag = this.bagTemplate.clone();

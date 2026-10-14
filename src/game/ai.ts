@@ -196,16 +196,20 @@ export async function planAiShot(ctx: AiContext, rng: Rng): Promise<AiPlan> {
       const powers = [1.0, 0.94, 0.88, 0.8, 0.7, 0.6, 0.5, 0.4].filter((p) => full * p < dist * 1.25 + 15 && (full * p > dist * 0.35 || p === 1.0));
       for (const p of powers) {
         const carry = full * p;
-        // aim lines: at the cup, and at the centre line where this shot would finish
+        // aim lines: at the cup, at the centre line where this shot would finish, and (on a
+        // dogleg) at the corner instead of across it
         const aims: { x: number; z: number }[] = [toCup];
         if (carry < dist - 25) {
           const s0 = field.pathCoords(ball.x, ball.z).s;
           let s = Math.max(0, s0);
           let pt = field.pointAt(s);
           while (s < field.length && Math.hypot(pt.x - ball.x, pt.z - ball.z) < carry * 1.06) { s += 2; pt = field.pointAt(s); }
-          const dx = pt.x - ball.x, dz = pt.z - ball.z;
-          const l = Math.hypot(dx, dz) || 1;
-          aims.push({ x: dx / l, z: dz / l });
+          const lay = field.layupPoint(ball.x, ball.z, carry * 1.06);
+          for (const q of Math.hypot(lay.x - pt.x, lay.z - pt.z) > 8 ? [pt, lay] : [pt]) {
+            const dx = q.x - ball.x, dz = q.z - ball.z;
+            const l = Math.hypot(dx, dz) || 1;
+            aims.push({ x: dx / l, z: dz / l });
+          }
         }
         for (const aim of aims) {
           for (const off of [-3, 0, 3]) {

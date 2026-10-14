@@ -108,6 +108,10 @@ export class Golfer {
   /** Head orientation (model space) at the last pre-impact pose, eased out of after impact. */
   private headHold = new THREE.Quaternion();
   private headHeld = false;
+  /** Neck/head local rotations as the clip posed them, before the tweaks above. */
+  private neckBase = new THREE.Quaternion();
+  private headBase = new THREE.Quaternion();
+  private bonesTweaked = false;
   private tmpM = new THREE.Matrix4();
   private tmpQ = new THREE.Quaternion();
   private tmpV = new THREE.Vector3();
@@ -115,19 +119,108 @@ export class Golfer {
   private fallbackClub: THREE.Object3D | null = null;
   hasRig = false;
 
-  static async create(): Promise<Golfer> {
+  /**
+   * `scan`: dress the rig in the photoreal scanned body (golfer_scan.glb) instead of the modelled
+   * one, when it is available. Its face, hair and skin are the scan's own; shirt, trousers and
+   * shoes still take the appearance colours.
+   */
+  static async create(opts: { scan?: boolean } = {}): Promise<Golfer> {
     const g = new Golfer();
-    const gltf = await loadGLTF('models/golfer.glb');
-    if (gltf) g.setupModel(gltf.scene, gltf.animations);
+    const [gltf, scan] = await Promise.all([loadGLTF('models/golfer.glb'), opts.scan ? loadGLTF('models/golfer_scan.glb') : null]);
+    if (gltf) g.setupModel(gltf.scene, gltf.animations, scan?.scene ?? null);
     else g.setupFallback();
     return g;
   }
 
-  private setupModel(scene: THREE.Object3D, clips: THREE.AnimationClip[]) {
+  /** True when the rig wears the scanned body (hair styles and build don't apply to it). */
+  scanned = false;
+
+  /** Swap the modelled body for the scanned one, bound to this rig's own skeleton by bone name. */
+  private attachScan(model: THREE.Object3D, scan: THREE.Object3D) {
+    const body = model.getObjectByName('Golfer_Body');
+    let target: THREE.SkinnedMesh | null = null;
+    body?.traverse((o) => { if (!target && (o as THREE.SkinnedMesh).isSkinnedMesh) target = o as THREE.SkinnedMesh; });
+    const sources: THREE.SkinnedMesh[] = [];
+    scan.getObjectByName('Golfer_Scan')?.traverse((o) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) sources.push(o as THREE.SkinnedMesh); });
+    const t = target as THREE.SkinnedMesh | null;
+    if (!body?.parent || !t || !sources.length) return;
+    const parent = body.parent;
+    const group = new THREE.Group();
+    group.name = 'Golfer_Scan';
+    group.position.copy(body.position);
+    group.quaternion.copy(body.quaternion);
+    group.scale.copy(body.scale);
+    for (const src of sources) {
+      const geo = src.geometry.clone();
+      // the scan's joints, in its own order, mapped onto this skeleton's bones
+      const map = src.skeleton.bones.map((b) => Math.max(0, t.skeleton.bones.findIndex((tb) => tb.name === b.name)));
+      const si = geo.getAttribute('skinIndex');
+      for (let i = 0; i < si.count; i++) for (let k = 0; k < 4; k++) si.setComponent(i, k, map[si.getComponent(i, k)]);
+      const mesh = new THREE.SkinnedMesh(geo, src.material);
+      mesh.name = src.name;
+      mesh.position.copy(t.position);
+      mesh.quaternion.copy(t.quaternion);
+      mesh.scale.copy(t.scale);
+      group.add(mesh);
+      mesh.bind(t.skeleton, t.bindMatrix);
+    }
+    // the hats (and sunglasses) were made for the modelled head: refit them to the scanned one
+    const classic: THREE.SkinnedMesh[] = [];
+    body.traverse((o) => { if ((o as THREE.SkinnedMesh).isSkinnedMesh) classic.push(o as THREE.SkinnedMesh); });
+    const b0 = Golfer.headCrown(classic), b1 = Golfer.headCrown(sources);
+    const hi = t.skeleton.bones.findIndex((b) => b.name === 'Head');
+    if (b0 && b1 && hi >= 0) {
+      const s0 = b0.getSize(new THREE.Vector3()), s1 = b1.getSize(new THREE.Vector3());
+      const k = (s1.x / s0.x + s1.z / s0.z) / 2;
+      const c0 = new THREE.Vector3((b0.min.x + b0.max.x) / 2, b0.max.y, (b0.min.z + b0.max.z) / 2);
+      const c1 = new THREE.Vector3((b1.min.x + b1.max.x) / 2, b1.max.y, (b1.min.z + b1.max.z) / 2);
+      // crown onto crown, scaled to the scanned head (in bind space), expressed in the Head bone's frame
+      const fit = new THREE.Matrix4().makeTranslation(c1.x, c1.y, c1.z)
+        .multiply(new THREE.Matrix4().makeScale(k, k, k))
+        .multiply(new THREE.Matrix4().makeTranslation(-c0.x, -c0.y, -c0.z));
+      const bone = t.skeleton.boneInverses[hi].clone().invert();
+      const local = bone.clone().invert().multiply(fit).multiply(bone);
+      for (const n of ['Hat_Cap', 'Hat_Visor', 'Hat_Bucket', 'Sunglasses']) {
+        const o = model.getObjectByName(n);
+        if (!o) continue;
+        o.updateMatrix();
+        o.matrix.premultiply(local);
+        o.matrix.decompose(o.position, o.quaternion, o.scale);
+      }
+    }
+    parent.remove(body);
+    parent.add(group);
+    this.scanned = true;
+  }
+
+  /** Box round the crown of a skinned head: the top 9 cm of what the Head bone carries, in bind space. */
+  private static headCrown(meshes: THREE.SkinnedMesh[]): THREE.Box3 | null {
+    const pts: THREE.Vector3[] = [];
+    for (const m of meshes) {
+      const hi = m.skeleton.bones.findIndex((b) => b.name === 'Head');
+      const pos = m.geometry.getAttribute('position');
+      const si = m.geometry.getAttribute('skinIndex'), sw = m.geometry.getAttribute('skinWeight');
+      if (hi < 0 || !si || !sw) continue;
+      for (let i = 0; i < pos.count; i++) {
+        let w = 0;
+        for (let k = 0; k < 4; k++) if (si.getComponent(i, k) === hi) w += sw.getComponent(i, k);
+        if (w > 0.5) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i));
+      }
+    }
+    if (!pts.length) return null;
+    let top = -Infinity;
+    for (const p of pts) top = Math.max(top, p.y);
+    const box = new THREE.Box3();
+    for (const p of pts) if (p.y > top - 0.09) box.expandByPoint(p);
+    return box;
+  }
+
+  private setupModel(scene: THREE.Object3D, clips: THREE.AnimationClip[], scan: THREE.Object3D | null = null) {
     const model = SkeletonUtils.clone(scene);
     this.model = model;
     this.root.add(model);
     this.hasRig = true;
+    if (scan) this.attachScan(model, scan);
     // per-instance materials so two golfers can wear different outfits
     const cloned = new Map<THREE.Material, THREE.Material>();
     model.traverse((o) => {
@@ -154,6 +247,7 @@ export class Golfer {
       if (mesh.morphTargetDictionary && mesh.morphTargetDictionary['Heavy'] !== undefined) this.morphMeshes.push(mesh);
     });
     this.mats.get('Skin')?.forEach(skinShading);
+    this.mats.get('ScanSkin')?.forEach(skinShading);
     this.mats.get('Eyes')?.forEach(eyeShading);
     // soft hairline / brow / lash edges: with no alpha cutoff the texture's alpha gradient maps
     // straight to MSAA coverage (the scene renders into a 4x MSAA target; shadows still cut at 0.5)
@@ -242,7 +336,7 @@ export class Golfer {
     set('Hat', a.hatColor);
     for (const [n, o] of this.variants) {
       if (n.startsWith('Hat_')) o.visible = a.hat !== 'None' && n === `Hat_${a.hat}`;
-      else if (n.startsWith('Hair_')) o.visible = a.hairStyle !== 'None' && n === `Hair_${a.hairStyle}`;
+      else if (n.startsWith('Hair_')) o.visible = !this.scanned && a.hairStyle !== 'None' && n === `Hair_${a.hairStyle}`; // the scan has its own hair
       else if (n === 'Sunglasses') o.visible = a.sunglasses;
     }
     for (const m of this.morphMeshes) {
@@ -371,8 +465,19 @@ export class Golfer {
         b.setEffectiveWeight(w);
       }
     }
+    // the mixer only rewrites a bone when its pose changes, so on a still pose (address, a held
+    // backswing) the tweaks below would stack up every frame and spin the head round: put the
+    // clip's pose back first
+    if (this.bonesTweaked) {
+      this.neck?.quaternion.copy(this.neckBase);
+      this.head?.quaternion.copy(this.headBase);
+      this.bonesTweaked = false;
+    }
     this.mixer.update(0);
     if (this.neck && clip.startsWith('Swing_') && this.anim !== 'Putt' && this.anim !== 'Chip') {
+      this.neckBase.copy(this.neck.quaternion);
+      if (this.head) this.headBase.copy(this.head.quaternion);
+      this.bonesTweaked = true;
       const tm = this.timing;
       // lift the chin a little so the face shows over the ball, as on tour; eases out after impact
       const fade = time <= tm.impact ? 1 : Math.max(0, 1 - (time - tm.impact) / 0.3);

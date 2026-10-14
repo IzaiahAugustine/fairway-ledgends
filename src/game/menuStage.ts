@@ -72,7 +72,8 @@ export class MenuStage {
     const right = { x: -field.teeDir.z, z: field.teeDir.x };
     this.stand.set(t.x + right.x * 0.6 - field.teeDir.x * 1.5, 0, t.z + right.z * 0.6 - field.teeDir.z * 1.5);
     this.stand.y = field.heightAt(this.stand.x, this.stand.z);
-    const g = await Golfer.create();
+    // the player's golfer in the photoreal scanned body
+    const g = await Golfer.create({ scan: true });
     g.setClub('Club_Iron', 0);
     g.root.position.copy(this.stand);
     this.scene.add(g.root);

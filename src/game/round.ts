@@ -181,7 +181,8 @@ export class Round {
   }
 
   async start() {
-    const pg = await Golfer.create();
+    // the player in the photoreal scanned body; tour opponents keep the modelled, customisable one
+    const pg = await Golfer.create({ scan: true });
     pg.applyAppearance(save.appearance);
     const ag = await Golfer.create();
     ag.applyAppearance(this.cfg.opponent.appearance);
@@ -503,10 +504,8 @@ export class Round {
     if (club.kind !== 'putter') {
       const full = fullCarry(club, c.tiers[club.id] ?? 0, this.shotType, c.lie, c.teed, c.style);
       if (full * 1.12 < dist - 15) {
-        // lay up along the centre line
-        let s = Math.max(0, this.field.pathCoords(c.pos.x, c.pos.z).s);
-        let p = this.field.pointAt(s);
-        while (s < this.field.length && Math.hypot(p.x - c.pos.x, p.z - c.pos.z) < full * 1.08) { s += 2; p = this.field.pointAt(s); }
+        // lay up along the centre line (to the corner of a dogleg)
+        const p = this.field.layupPoint(c.pos.x, c.pos.z, full * 1.08);
         tx = p.x; tz = p.z;
       }
     }

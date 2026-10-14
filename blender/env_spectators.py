@@ -1,9 +1,13 @@
 """Gallery spectators (Blender space, Z up, metres; feet on z=0, facing -Y).
 
-Three low-poly poses for the crowds around greens and tees: Spectator_A (arms down),
-Spectator_B (hands on hips) and Spectator_C (arms folded). They're drawn instanced in the game,
-so the vertex colour is not a colour but a mask that picks each spectator's own colours:
-  R = shirt, G = trousers, B = skin, black = hair / shoes / belt (dark).
+Four low-poly poses for the crowds around greens and tees: Spectator_A (arms down),
+Spectator_B (hands on hips), Spectator_C (arms folded) and Spectator_D (in a cap, hands in
+pockets). They're drawn instanced in the game, so the vertex colour is not a colour but a mask
+that picks each spectator's own colours:
+  R = shirt, G = trousers, B = skin, black = hair / cap / brows / shoes / belt (dark),
+  white = eyes (near-black whatever the hair colour).
+Every head has a face (eyes, brows, nose, ears, a hairline above the forehead and hair down the
+back of the head) so that from across the fairway it is clear which way people are facing.
 """
 import math
 
@@ -11,7 +15,7 @@ import numpy as np
 
 from env_mesh import MeshAccum
 
-SHIRT, PANTS, SKIN, DARK = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (0.0, 0.0, 0.0)
+SHIRT, PANTS, SKIN, DARK, EYE = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)
 Z3 = np.array([0.0, 0.0, 1.0])
 
 
@@ -57,9 +61,31 @@ def spectator(pose):
     prof[0] = (0.0, prof[0][1])
     prof[-1] = (0.0, prof[-1][1])
     acc.lathe(prof, 10, frame=frame)
+    cap = pose == 'D'
     for i in range(s, len(acc.verts)):
         x, y, z = acc.verts[i]
-        acc.cols[i] = DARK if z > 1.66 or (z > 1.6 and y > 0.04) else SKIN
+        if cap:
+            hair = z > 1.68
+        else:
+            # hairline above the forehead, hair over the temples and down the back to the nape
+            hair = z > 1.71 or (z > 1.66 and (abs(x) > 0.07 or y > -0.04)) or (z > 1.57 and y > 0.02)
+        acc.cols[i] = DARK if hair else SKIN
+    # the face (front is -Y): nose, eyes, brows, ears
+    for c, half, col in [
+        ((0.0, -0.104, 1.622), (0.013, 0.018, 0.024), SKIN),
+        ((-0.03, -0.1, 1.65), (0.013, 0.006, 0.008), EYE), ((0.03, -0.1, 1.65), (0.013, 0.006, 0.008), EYE),
+        ((-0.032, -0.1, 1.673), (0.019, 0.006, 0.006), DARK), ((0.032, -0.1, 1.673), (0.019, 0.006, 0.006), DARK),
+        ((-0.104, 0.004, 1.632), (0.012, 0.02, 0.03), SKIN), ((0.104, 0.004, 1.632), (0.012, 0.02, 0.03), SKIN),
+    ]:
+        s = len(acc.verts)
+        acc.box(c, half)
+        _paint(acc, s, col)
+    if cap:
+        # peak tipped down a little over the eyes
+        t = math.radians(12)
+        s = len(acc.verts)
+        acc.obox((0.0, -0.15, 1.69), (np.array([1.0, 0, 0]), np.array([0, math.cos(t), math.sin(t)]), np.array([0, -math.sin(t), math.cos(t)])), (0.085, 0.065, 0.008), DARK)
+        _paint(acc, s, DARK)
     # arms by pose (shoulders at +-0.2, z 1.42); sleeves are shirt, forearms skin
     for sx in (-1, 1):
         sh = (sx * 0.2, 0.0, 1.42)
@@ -67,8 +93,10 @@ def spectator(pose):
             el, wr = (sx * 0.25, 0.02, 1.15), (sx * 0.26, -0.03, 0.88)
         elif pose == 'B':  # hands on hips
             el, wr = (sx * 0.36, 0.06, 1.16), (sx * 0.19, -0.04, 1.0)
-        else:  # arms folded across the chest
-            el, wr = (sx * 0.23, -0.14, 1.14), (-sx * 0.09, -0.19, 1.22)
+        elif pose == 'C':  # arms folded high across the chest
+            el, wr = (sx * 0.24, -0.12, 1.2), (-sx * 0.1, -0.18, 1.31)
+        else:  # hands in the front pockets
+            el, wr = (sx * 0.27, 0.02, 1.16), (sx * 0.19, -0.1, 0.95)
         _limb(acc, [sh, el], [0.058, 0.05], SHIRT)
         _limb(acc, [el, wr], [0.045, 0.038], SKIN)
     return acc
@@ -94,7 +122,7 @@ def spectator_lo():
 
 def build(scene, asset_collection, simple_material, report):
     mat = simple_material("Spectator", (1.0, 1.0, 1.0), rough=0.85, vcol=True, spec=0.3)
-    for pose in ('A', 'B', 'C'):
+    for pose in ('A', 'B', 'C', 'D'):
         name = f"Spectator_{pose}"
         acc = spectator(pose)
         coll = asset_collection(scene, name)

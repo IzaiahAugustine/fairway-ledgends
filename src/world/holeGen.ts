@@ -77,6 +77,10 @@ export class HoleField {
   pz: number[] = [];
   ps: number[] = [];
   length = 0;
+  /** Dogleg corners: arc length of the apex, turn (radians, + right) and half-length of the turn. */
+  bends: { s: number; ang: number; w: number }[] = [];
+  /** Tightest centre-line radius through a dogleg (m), well outside the rough. */
+  static TURN_RADIUS = 38;
 
   tee = { x: 0, z: 0 };
   teeDir = { x: 0, z: -1 };
@@ -136,9 +140,10 @@ export class HoleField {
     this.rng = new Rng(seed);
     this.noise = new Noise2D(seed ^ 0x5bd1e995);
     this.buildPath();
-    this.placeFeatures();
+    // bounds and path lookup first: placing water checks it against the fairway
     this.computeBounds();
     this.buildCoarse();
+    this.placeFeatures();
     this.bake();
     this.placeVegetation();
   }
@@ -148,66 +153,48 @@ export class HoleField {
   private buildPath() {
     const d = this.def;
     const L = d.yards * YARD;
-    const pts: { x: number; z: number }[] = [{ x: 0, z: 0 }];
     let heading = this.rng.range(-0.06, 0.06); // radians, 0 = -Z
-    const dir = (h: number) => ({ x: Math.sin(h), z: -Math.cos(h) });
-    const bends: { at: number; ang: number }[] = [];
-    if (d.bend) bends.push({ at: d.bendAt ?? 0.6, ang: d.bend });
-    if (d.bend2) bends.push({ at: d.bend2At ?? 0.8, ang: d.bend2 });
-    bends.sort((a, b) => a.at - b.at);
-    let walked = 0;
-    let cur = { x: 0, z: 0 };
-    for (const b of bends) {
-      const seg = b.at * L - walked;
-      const v = dir(heading);
-      cur = { x: cur.x + v.x * seg, z: cur.z + v.z * seg };
-      pts.push(cur);
-      walked += seg;
-      heading += (b.ang * Math.PI) / 180;
+    // A dogleg runs straight out to the corner, swings round it and runs straight on, as real
+    // holes are routed. Each turn is a smooth bump of curvature centred on the corner, wide
+    // enough that the tightest radius stays outside the rough (so the corridor never folds).
+    this.bends = [];
+    if (d.bend) this.bends.push({ s: (d.bendAt ?? 0.6) * L, ang: (d.bend * Math.PI) / 180, w: 0 });
+    if (d.bend2) this.bends.push({ s: (d.bend2At ?? 0.8) * L, ang: (d.bend2 * Math.PI) / 180, w: 0 });
+    for (const b of this.bends) {
+      b.w = Math.max(18, Math.abs(b.ang) * HoleField.TURN_RADIUS);
+      b.s = clamp(b.s, b.w + 25, Math.max(b.w + 25, L - b.w - 30));
     }
-    const v = dir(heading);
-    const rest = L - walked;
-    pts.push({ x: cur.x + v.x * rest, z: cur.z + v.z * rest });
-
-    // Smooth the polyline with a Catmull-Rom spline (corners rounded) and resample every metre.
-    const dense: { x: number; z: number }[] = [];
-    const P = [pts[0], ...pts, pts[pts.length - 1]];
-    for (let i = 1; i < P.length - 2; i++) {
-      const p0 = P[i - 1], p1 = P[i], p2 = P[i + 1], p3 = P[i + 2];
-      const segLen = Math.hypot(p2.x - p1.x, p2.z - p1.z);
-      const steps = Math.max(2, Math.ceil(segLen / 2));
-      for (let k = 0; k < steps; k++) {
-        const t = k / steps;
-        const t2 = t * t, t3 = t2 * t;
-        const cr = (a: number, b: number, c: number, e: number) =>
-          0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - e) * t2 + (-a + 3 * b - 3 * c + e) * t3);
-        dense.push({ x: cr(p0.x, p1.x, p2.x, p3.x), z: cr(p0.z, p1.z, p2.z, p3.z) });
+    const curv = (s: number) => {
+      let k = 0;
+      for (const b of this.bends) {
+        const u = (s - b.s) / b.w;
+        if (Math.abs(u) < 1) k += ((b.ang / b.w) * (1 + Math.cos(Math.PI * u))) / 2;
       }
-    }
-    dense.push(pts[pts.length - 1]);
-    // Resample at 1 m spacing.
-    let acc = 0;
-    this.px = [dense[0].x];
-    this.pz = [dense[0].z];
+      return k;
+    };
+    // integrate the heading in quarter-metre steps, keeping a point every metre
+    this.px = [0];
+    this.pz = [0];
     this.ps = [0];
-    let next = 1;
-    for (let i = 1; i < dense.length; i++) {
-      const a = dense[i - 1], b = dense[i];
-      const seg = Math.hypot(b.x - a.x, b.z - a.z);
-      while (acc + seg >= next) {
-        const t = (next - acc) / seg;
-        this.px.push(lerp(a.x, b.x, t));
-        this.pz.push(lerp(a.z, b.z, t));
-        this.ps.push(next);
-        next += 1;
+    let x = 0, z = 0, s = 0;
+    const whole = Math.floor(L);
+    for (let m = 1; m <= whole + 1; m++) {
+      const end = Math.min(m, L);
+      if (end <= s) break;
+      const h = (end - s) / 4;
+      for (let q = 0; q < 4; q++) {
+        const k = curv(s + h / 2);
+        const mid = heading + (k * h) / 2;
+        x += Math.sin(mid) * h;
+        z -= Math.cos(mid) * h;
+        heading += k * h;
+        s += h;
       }
-      acc += seg;
+      this.px.push(x);
+      this.pz.push(z);
+      this.ps.push(end);
     }
-    const last = dense[dense.length - 1];
-    this.px.push(last.x);
-    this.pz.push(last.z);
-    this.ps.push(acc);
-    this.length = acc;
+    this.length = L;
     this.tee = { x: this.px[0], z: this.pz[0] };
     const t0 = this.tangentAt(3);
     this.teeDir = t0;
@@ -244,7 +231,9 @@ export class HoleField {
     // Green centre sits a little past the nominal yardage so the cup lands near the listed length.
     this.green.x = end.x;
     this.green.z = end.z;
-    this.green.rot = Math.atan2(endT.x, -endT.z);
+    // greens sit at an angle to the approach rather than square to it; some (Redans) sharply
+    const angle = d.greenAngle ?? rng.range(-14, 14);
+    this.green.rot = Math.atan2(endT.x, -endT.z) + (angle * Math.PI) / 180;
     const slope = ((d.greenSlope ?? rng.range(1.1, 1.9)) * 0.75) / 100;
     // Rise from front to back, with a random sideways component.
     const side = rng.range(-0.6, 0.6);
@@ -259,8 +248,9 @@ export class HoleField {
     const cr = rng.range(0.1, 0.55);
     const lu = Math.cos(ca) * cr * this.green.rx * 0.9;
     const lv = Math.sin(ca) * cr * this.green.rz * 0.9;
-    // local u = along green axis (forward), v = right
-    this.cup = { x: this.green.x + fx * lu + rx * lv, z: this.green.z + fz * lu + rz * lv };
+    // local u = along the green's own axis, v = to its right
+    const gfx = Math.sin(this.green.rot), gfz = -Math.cos(this.green.rot);
+    this.cup = { x: this.green.x + gfx * lu - gfz * lv, z: this.green.z + gfz * lu + gfx * lv };
 
     // Fairway extents.
     this.fwBase = traits(c).fwWidth * (d.fwWidth ?? 1);
@@ -271,6 +261,8 @@ export class HoleField {
       this.fwStart = Math.min(d.par === 5 ? 150 : 130, L * 0.3) * traits(c).fwStartMul;
       this.fwEnd = L - this.green.rx * 0.5;
     }
+    // the dogleg the tee shot plays to, if any
+    const corner = this.bends.find((b) => Math.abs(b.ang) > 0.3 && b.s > 140 && b.s < L - 90);
 
     // Water.
     const water = d.water ?? [];
@@ -291,7 +283,22 @@ export class HoleField {
         const p = this.pointAt(s);
         const t = this.tangentAt(s);
         const off = (this.fwBase + rng.range(8, 14)) * sgn;
-        this.ponds.push({ x: p.x - t.z * off, z: p.z + t.x * off, rx: rng.range(40, 60), rz: rng.range(14, 20), rot: Math.atan2(t.x, -t.z) + Math.PI / 2, seed: rng.next() * 100, level: 0 });
+        // long axis along the hole
+        const pond = { x: p.x - t.z * off, z: p.z + t.x * off, rx: rng.range(40, 60), rz: rng.range(14, 20), rot: Math.atan2(t.x, -t.z), seed: rng.next() * 100, level: 0 };
+        if (this.fitPond(pond)) this.ponds.push(pond);
+      }
+      if (w === 'pond-corner' && corner) {
+        // water filling the inside of the dogleg: carry it to cut the corner, or play round
+        const inside = Math.sign(corner.ang);
+        const p = this.pointAt(corner.s);
+        const t = this.tangentAt(corner.s);
+        const nx = -t.z * inside, nz = t.x * inside;
+        // a horseshoe wraps round a bigger lake
+        const big = Math.max(1, Math.abs(corner.ang));
+        const prx = rng.range(26, 34) * big;
+        const off = this.fwBase * 1.2 + 12 + prx;
+        const pond = { x: p.x + nx * off, z: p.z + nz * off, rx: prx, rz: rng.range(18, 24) * Math.sqrt(big), rot: Math.atan2(nx, -nz), seed: rng.next() * 100, level: 0 };
+        if (this.fitPond(pond)) this.ponds.push(pond);
       }
       if (w === 'burn') {
         this.crossings.push({ s: L - this.green.rx - rng.range(6, 10), half: 2.6, level: 0, ocean: false });
@@ -314,12 +321,14 @@ export class HoleField {
     const used = angles.slice(0, gb).map((a) => a + rng.range(-0.25, 0.25));
     rng.next();
     for (const a of used) {
-      // a measured from green forward axis; pi = front (towards tee)
-      const ru = Math.cos(a), rv = Math.sin(a);
-      const er = Math.hypot(ru * this.green.rx, rv * this.green.rz);
+      // a measured from the approach direction; pi = front (towards tee)
+      const ux = fx * Math.cos(a) + rx * Math.sin(a), uz = fz * Math.cos(a) + rz * Math.sin(a);
+      // the green's edge that way (it may be angled and is never quite an ellipse)
+      let er = 0;
+      while (er < 40 && this.greenDist(this.green.x + ux * er, this.green.z + uz * er) < 1) er += 0.25;
       const dist = er + (pot ? rng.range(2.5, 4) : rng.range(4.5, 7));
-      const bx = this.green.x + fx * ru * (dist / er) * Math.abs(er) + rx * rv * (dist / er) * Math.abs(er);
-      const bz = this.green.z + fz * ru * (dist / er) * Math.abs(er) + rz * rv * (dist / er) * Math.abs(er);
+      const bx = this.green.x + ux * dist;
+      const bz = this.green.z + uz * dist;
       const bunker: Bunker = pot
         ? { x: bx, z: bz, rx: rng.range(2.9, 3.8), rz: rng.range(2.8, 3.6), rot: rng.range(0, 6.28), seed: rng.next() * 100, depth: rng.range(1.0, 1.3), pot: true, faceX: 0, faceZ: 0 }
         : { x: bx, z: bz, rx: rng.range(6, 10), rz: rng.range(3.2, 5), rot: Math.atan2(this.green.x - bx, -(this.green.z - bz)) + Math.PI / 2, seed: rng.next() * 100, depth: rng.range(0.7, 1.1), pot: false, faceX: 0, faceZ: 0 };
@@ -331,11 +340,20 @@ export class HoleField {
     // Fairway bunkers in the driving zone.
     const fb = d.fairwayBunkers ?? 0;
     for (let i = 0; i < fb; i++) {
-      const s = clamp(rng.range(205, 265) + (pot ? rng.range(-60, 40) : 0), 120, L - 80);
+      let s: number, sgn: number;
+      if (corner && i < 2) {
+        // at a dogleg one guards the inside of the corner against the cut, the other catches
+        // a drive that runs through the fairway on the outside
+        const inside = Math.sign(corner.ang);
+        s = corner.s + (i === 0 ? rng.range(-30, -12) : rng.range(8, 28));
+        sgn = i === 0 ? inside : -inside;
+      } else {
+        s = clamp(rng.range(205, 265) + (pot ? rng.range(-60, 40) : 0), 120, L - 80);
+        sgn = i % 2 === 0 ? 1 : -1;
+      }
       if (s > L - 60) continue;
       const p = this.pointAt(s);
       const t = this.tangentAt(s);
-      const sgn = i % 2 === 0 ? 1 : -1;
       const off = pot ? rng.range(-this.fwBase * 0.7, this.fwBase * 0.7) : sgn * (this.fwBase - rng.range(1, 4));
       const bx = p.x - t.z * off, bz = p.z + t.x * off;
       const bunker: Bunker = pot
@@ -343,6 +361,43 @@ export class HoleField {
         : { x: bx, z: bz, rx: rng.range(4.5, 7), rz: rng.range(9, 14), rot: Math.atan2(t.x, -t.z), seed: rng.next() * 100, depth: rng.range(0.6, 0.9), pot: false, faceX: -t.x, faceZ: -t.z };
       this.bunkers.push(bunker);
     }
+    if (d.crossBunker) {
+      // a long bunker slanted across the fairway in the lay-up zone of a three-shotter
+      const s = L - rng.range(95, 130);
+      const p = this.pointAt(s);
+      const t = this.tangentAt(s);
+      const off = rng.range(-0.35, 0.35) * this.fwBase;
+      this.bunkers.push({
+        x: p.x - t.z * off, z: p.z + t.x * off, rx: rng.range(9, 12), rz: rng.range(3.5, 4.5),
+        rot: Math.atan2(t.x, -t.z) + Math.PI / 2 + rng.range(-0.3, 0.3), seed: rng.next() * 100,
+        depth: rng.range(0.8, 1.0), pot: false, faceX: -t.x, faceZ: -t.z,
+      });
+    }
+  }
+
+  /**
+   * Keep a pond's banks off the fairway: one laid straight beside a bending hole can cut across
+   * it, so ease it outward and shorten it until it sits clear. False if it never does.
+   */
+  private fitPond(p: Pond): boolean {
+    for (let tries = 0; tries < 10; tries++) {
+      const fx = Math.sin(p.rot), fz = -Math.cos(p.rot);
+      let clear = true;
+      for (let a = 0; a < 32 && clear; a++) {
+        const ang = (a / 32) * Math.PI * 2;
+        const u = Math.cos(ang) * p.rx * 1.4, v = Math.sin(ang) * p.rz * 1.4;
+        const { s, d } = this.pathCoords(p.x + fx * u - fz * v, p.z + fz * u + fx * v);
+        if (s > this.fwStart - 10 && s < this.fwEnd + 30 && Math.abs(d) < this.fwHalf(clamp(s, 0, this.length)) + 2) clear = false;
+      }
+      if (clear) return true;
+      const pc = this.pathCoords(p.x, p.z);
+      const t = this.tangentAt(clamp(pc.s, 0, this.length));
+      const out = Math.sign(pc.d || 1) * 4;
+      p.x += -t.z * out;
+      p.z += t.x * out;
+      p.rx *= 0.9;
+    }
+    return false;
   }
 
   private computeBounds() {
@@ -495,6 +550,9 @@ export class HoleField {
     const relief = c.relief;
     const teeH = 0;
     this.teeH = teeH;
+    const pEnd = this.pointAt(L);
+    const chordX = pEnd.x - this.tee.x, chordZ = pEnd.z - this.tee.z;
+    const chordL2 = chordX * chordX + chordZ * chordZ || 1;
 
     // Base terrain before features.
     const baseH = (x: number, z: number, s: number, ad: number) => {
@@ -512,8 +570,11 @@ export class HoleField {
         h += c.dunes * outside * (hummock * hummock * 2.6 - 0.45 + 0.25 * noise.noise(x * 0.06 - 7, z * 0.06 + 3));
         h += c.dunes * 0.22 * corridor * noise.fbm(x * 0.032 - 2, z * 0.032 + 1, 2);
       }
-      // elevation trend toward the green
-      h += elev * smoothstep(0, 1, clamp(s / L, 0, 1));
+      // elevation trend toward the green: along the path near it, but by progress along the
+      // tee-to-green line farther out, where the path coordinate jumps across a dogleg's inside
+      const chord = clamp(((x - this.tee.x) * chordX + (z - this.tee.z) * chordZ) / chordL2, 0, 1);
+      const far = smoothstep(HoleField.TURN_RADIUS * 0.6, HoleField.TURN_RADIUS * 0.95, ad);
+      h += elev * smoothstep(0, 1, lerp(clamp(s / L, 0, 1), chord, far));
       return h;
     };
 
@@ -771,6 +832,8 @@ export class HoleField {
         if (this.oceanSide === sg) continue;
         const off = this.obHalf(clamp(s, 0, L)) * sg;
         const sx = p.x - t.z * off, sz = p.z + t.x * off;
+        // inside a dogleg this point is nearer the other leg, well in bounds
+        if (Math.abs(this.pathCoords(sx, sz).d) < Math.abs(off) - 3) continue;
         if (this.surfAt(sx + t.z * sg * 1.5, sz - t.x * sg * 1.5) !== Surf.Water) this.obStakes.push({ x: sx, z: sz });
       }
     }
@@ -798,11 +861,21 @@ export class HoleField {
       grid.get(k)!.push({ x, z });
     };
     const area = (this.nx * this.nz * CELL * CELL) / 1000;
+    // dogleg corners are planted up on the inside so the corner can't simply be flown
+    const corners = this.bends.filter((b) => Math.abs(b.ang) > 0.3);
+    const cornerAttempts = 70 * corners.length;
+    const spot = (n: number) => {
+      if (n >= cornerAttempts) return { x: this.minX + rng.next() * (this.nx - 1) * CELL, z: this.minZ + rng.next() * (this.nz - 1) * CELL };
+      const b = corners[n % corners.length];
+      const s = clamp(b.s + rng.range(-1.3, 0.7) * b.w - 15, 0, L);
+      const p = this.pointAt(s), t = this.tangentAt(s);
+      const off = Math.sign(b.ang) * (this.fwHalf(s) + rng.range(10, 55));
+      return { x: p.x - t.z * off, z: p.z + t.x * off };
+    };
     if (c.trees.length > 0 && c.treeDensity > 0) {
-      const attempts = Math.floor(area * 9 * c.treeDensity);
+      const attempts = Math.floor(area * 9 * c.treeDensity) + cornerAttempts;
       for (let n = 0; n < attempts; n++) {
-        const x = this.minX + rng.next() * (this.nx - 1) * CELL;
-        const z = this.minZ + rng.next() * (this.nz - 1) * CELL;
+        const { x, z } = spot(n);
         const sf = this.surfAt(x, z);
         if (sf !== Surf.Deep && sf !== Surf.Rough && sf !== Surf.OB) continue;
         const { s, d } = this.pathCoords(x, z);
@@ -815,7 +888,7 @@ export class HoleField {
         if (this.nearWater(x, z, 6)) continue;
         // denser further from the corridor
         const p = sf === Surf.Rough ? 0.18 : sf === Surf.Deep ? 0.75 : 0.5;
-        if (!rng.chance(p)) continue;
+        if (!rng.chance(n < cornerAttempts ? Math.max(p, 0.6) : p)) continue;
         const kind = rng.pick(c.trees);
         const minDist = kind === 'Tree_Cypress' ? 9 : kind === 'Tree_Birch' ? 5 : 7;
         if (tooClose(x, z, minDist)) continue;
@@ -824,16 +897,15 @@ export class HoleField {
       }
     }
     if (c.bushes.length > 0 && c.bushDensity > 0) {
-      const attempts = Math.floor(area * 14 * c.bushDensity);
+      const attempts = Math.floor(area * 14 * c.bushDensity) + cornerAttempts;
       for (let n = 0; n < attempts; n++) {
-        const x = this.minX + rng.next() * (this.nx - 1) * CELL;
-        const z = this.minZ + rng.next() * (this.nz - 1) * CELL;
+        const { x, z } = spot(n);
         const sf = this.surfAt(x, z);
         if (sf !== Surf.Deep && sf !== Surf.OB) continue;
         if (this.greenDist(x, z) < 2.4 || this.nearWater(x, z, 3)) continue;
         // gorse grows in clumps
         const clump = this.noise.noise(x * 0.03 + 50, z * 0.03 - 50);
-        if (clump < 0.1 && !rng.chance(0.15)) continue;
+        if (clump < 0.1 && n >= cornerAttempts && !rng.chance(0.15)) continue;
         if (tooClose(x, z, 2.2)) continue;
         add(x, z);
         this.bushes.push({ x, z, kind: rng.pick(c.bushes), scale: rng.range(0.7, 1.35), rot: rng.range(0, Math.PI * 2) });
@@ -894,15 +966,28 @@ export class HoleField {
     return Math.hypot(this.cup.x - this.tee.x, this.cup.z - this.tee.z);
   }
 
-  /** Point on the centre line at distance `dist` (straight-line) from (x, z), heading toward the cup. */
-  layupPoint(fromS: number, carry: number): { x: number; z: number } {
-    const p0 = this.pointAt(fromS);
-    let s = fromS;
-    while (s < this.length) {
+  /**
+   * Where to aim a shot that can't reach the green: the farthest point down the centre line
+   * within `reach` (straight-line) of (x, z) that can be seen along the fairway. On a dogleg
+   * that is the corner, not a line across the trees on the inside.
+   */
+  layupPoint(x: number, z: number, reach: number): { x: number; z: number } {
+    const start = this.pathCoords(x, z);
+    let best: { x: number; z: number } | null = null;
+    let s = Math.max(0, start.s) + 2;
+    for (; s < this.length; s += 2) {
       const p = this.pointAt(s);
-      if (Math.hypot(p.x - p0.x, p.z - p0.z) >= carry) return p;
-      s += 1;
+      const dist = Math.hypot(p.x - x, p.z - z);
+      if (dist >= reach) break;
+      // the line may start out in the rough, where the ball is, but must close onto the fairway
+      let open = true;
+      for (let k = 1; k < 8 && open; k++) {
+        const pc = this.pathCoords(x + ((p.x - x) * k) / 8, z + ((p.z - z) * k) / 8);
+        if (Math.abs(pc.d) > this.fwHalf(clamp(pc.s, 0, this.length)) + 4 + Math.abs(start.d) * (1 - k / 8)) open = false;
+      }
+      if (open) best = p;
+      else if (dist > 60) break;
     }
-    return this.pointAt(this.length);
+    return best ?? this.pointAt(Math.min(s, this.length));
   }
 }

@@ -99,13 +99,15 @@ export class Crowd {
         .replace(
           '#include <color_fragment>',
           `diffuseColor.rgb = vShirt * vColor.r + vPants * vColor.g + vSkin * vColor.b + vHair * max(0.0, 1.0 - vColor.r - vColor.g - vColor.b);
+          // eyes are masked white: dark whatever the hair colour
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.025), smoothstep(2.5, 2.9, vColor.r + vColor.g + vColor.b));
           // people packed together shade each other low down: darker legs, lit shoulders and heads
           diffuseColor.rgb *= mix(0.55, 1.0, smoothstep(0.0, 0.75, vCrowdH));`,
         );
     };
-    mat.customProgramCacheKey = () => 'crowd-v3';
+    mat.customProgramCacheKey = () => 'crowd-v4';
     this.mat = mat;
-    for (const pose of ['A', 'B', 'C']) {
+    for (const pose of ['A', 'B', 'C', 'D']) {
       const src = gltf?.scene.getObjectByName(`Spectator_${pose}`) as THREE.Mesh | undefined;
       if (src?.isMesh) this.hiGeo.push(src.geometry);
     }
