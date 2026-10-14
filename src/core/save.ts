@@ -101,8 +101,28 @@ function defaults(): SaveData {
   };
 }
 
+/**
+ * Progress carried over from the game's old address (index.html forwards it as #transfer=...).
+ * It is kept unless this browser already has a save with more XP here.
+ */
+function adoptTransfer() {
+  const m = /^#transfer=(.+)$/.exec(location.hash);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    const incoming = decodeURIComponent(escape(atob(decodeURIComponent(m[1]))));
+    const inc = JSON.parse(incoming) as Partial<SaveData>;
+    const cur = localStorage.getItem(KEY);
+    const curXp = cur ? ((JSON.parse(cur) as Partial<SaveData>).xpEarned ?? 0) : -1;
+    if ((inc.xpEarned ?? 0) >= curXp) localStorage.setItem(KEY, incoming);
+  } catch {
+    // a damaged transfer leaves the local save alone
+  }
+}
+
 function load(): SaveData {
   const d = defaults();
+  adoptTransfer();
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return d;

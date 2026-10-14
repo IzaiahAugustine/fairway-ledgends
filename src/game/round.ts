@@ -46,6 +46,8 @@ export interface RoundConfig {
   options: MatchOptions;
   /** Online match against a friend: the opponent seat is played by the other browser. */
   online?: OnlineMatch;
+  /** Awaited between holes (game portals show an ad break here). */
+  holeBreak?: (nextHole: number) => Promise<void>;
 }
 
 export interface RoundResult {
@@ -1393,7 +1395,13 @@ export class Round {
         this.match.finished = true;
         this.state = 'over';
         this.onExit?.({ match: this.match, course: this.cfg.course, difficulty: this.cfg.difficulty, opponentName: this.cfg.opponent.name, quit: false, options: this.cfg.options });
-      } else void this.loadHole(this.holeIdx + 1);
+      } else {
+        const next = this.holeIdx + 1;
+        void (async () => {
+          if (this.cfg.holeBreak) await this.cfg.holeBreak(next);
+          if (!this.disposed) await this.loadHole(next);
+        })();
+      }
     });
   }
 

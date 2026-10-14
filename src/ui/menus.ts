@@ -19,6 +19,7 @@ import { PERSONALITIES } from '../game/ai';
 import { Surf } from '../world/holeGen';
 import { pickWeather } from '../world/weather';
 import { Rng } from '../core/rng';
+import { portal } from '../platform/portal';
 import { OnlineMatch, onlineAvailable, type OnlinePlayer, type OnlineSettings } from '../net/online';
 import { clear, esc, h } from './dom';
 
@@ -34,6 +35,9 @@ export interface MenuHooks {
   resume(): void;
   quitMatch(): void;
 }
+
+/** XP for watching an optional ad after a match (game portals only). */
+const REWARD_XP = 100;
 
 const SKIN = ['#f6d3b8', '#f1c6a6', '#e0ac82', '#c68a62', '#a8714a', '#8a5636', '#6b4128', '#4a2c1c'];
 const HAIR = ['#0f0c0a', '#2a1d14', '#3b2a1e', '#6b4a2a', '#9a6a38', '#c9a066', '#e3cf9e', '#8a8a8a', '#d9d9d9', '#7a2a16'];
@@ -502,7 +506,7 @@ export class Menus {
 
     col.append(play, feat, tiles);
     const foot = h('div', { class: 'mm-foot rise', style: '--i:7' });
-    foot.innerHTML = `<span><i class="kc">↑</i><i class="kc">↓</i><i class="kc">←</i><i class="kc">→</i>Navigate</span><span><i class="kc">Enter</i>Select</span>`;
+    foot.innerHTML = `<span><i class="kc">↑</i><i class="kc">↓</i><i class="kc">←</i><i class="kc">→</i>Navigate</span><span><i class="kc">Enter</i>Select</span><a class="mm-privacy" href="privacy.html" target="_blank" rel="noopener">Privacy</a>`;
     el.append(brand, col, foot, this.playerCard());
     this.set(el);
   }
@@ -1293,6 +1297,25 @@ export class Menus {
     menu.innerHTML = `${ICON.home}<span>Main menu</span>`;
     menu.onclick = () => onDone();
     row.append(up, again, menu);
+    // on game portals: an optional ad for bonus XP
+    if (portal.active) {
+      const bonus = h('button', { class: 'btn', 'data-k': 'reward-xp' });
+      bonus.innerHTML = `${ICON.play}<span>Watch an ad · +${REWARD_XP} XP</span>`;
+      bonus.onclick = async () => {
+        bonus.setAttribute('disabled', '');
+        const ok = await portal.rewardedBreak();
+        if (ok) {
+          save.xp += REWARD_XP;
+          save.xpEarned += REWARD_XP;
+          persist();
+          bonus.innerHTML = `<span>+${REWARD_XP} XP added</span>`;
+          up.innerHTML = `${ICON.bag}<span>Upgrade clubs (${save.xp} XP)</span>`;
+        } else {
+          bonus.innerHTML = `<span>No ad available right now</span>`;
+        }
+      };
+      row.prepend(bonus);
+    }
     sheet.append(row);
     el.append(sheet);
     this.set(el);

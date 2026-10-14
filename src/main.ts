@@ -15,6 +15,7 @@ import { careerEvent } from './data/career';
 import { FORMATS, type MatchOptions } from './game/match';
 import { PERSONALITIES, makeOpponent, planAiShot, type Opponent } from './game/ai';
 import type { OnlineMatch } from './net/online';
+import { portal } from './platform/portal';
 import { MenuStage, type StageMode } from './game/menuStage';
 import { Round } from './game/round';
 import { Hud } from './ui/hud';
@@ -342,7 +343,34 @@ function setPaused(p: boolean) {
   if (round) round.paused = p;
   if (p) menus.showPause();
   else menus.hide();
+  if (round) {
+    if (p) portal.gameplayStop();
+    else portal.gameplayStart();
+  }
 }
+
+// while a portal ad plays: the game stands still, makes no sound and takes no input
+const adShield = document.createElement('div');
+adShield.style.cssText = 'position:fixed;inset:0;z-index:99999;display:none;';
+document.body.append(adShield);
+const swallowKeys = (e: KeyboardEvent) => {
+  e.preventDefault();
+  e.stopImmediatePropagation();
+};
+portal.onAdStart = () => {
+  if (round) round.paused = true;
+  void sfx.context()?.suspend();
+  adShield.style.display = 'block';
+  window.addEventListener('keydown', swallowKeys, true);
+  window.addEventListener('keyup', swallowKeys, true);
+};
+portal.onAdEnd = () => {
+  if (round) round.paused = paused;
+  void sfx.context()?.resume();
+  adShield.style.display = 'none';
+  window.removeEventListener('keydown', swallowKeys, true);
+  window.removeEventListener('keyup', swallowKeys, true);
+};
 
 async function startMatch(opts: MatchOptions, online?: OnlineMatch) {
   const full = courseById(opts.courseId);
@@ -371,6 +399,8 @@ async function startMatch(opts: MatchOptions, online?: OnlineMatch) {
   courseEnv.setQuality(save.settings.quality);
   const r = new Round(courseScene, camera, courseEnv, hud, canvas, {
     course, difficulty: diff, opponent: opp, seed, format: opts.practice ? 'stroke' : opts.format, firstHole, practice: !!opts.practice, options: opts, online,
+    // portals: an ad break every third hole
+    holeBreak: (next) => (next % 3 === 0 ? portal.commercialBreak() : Promise.resolve()),
   });
   if (online) {
     online.onOpponentLeft = () => {
@@ -392,6 +422,7 @@ async function startMatch(opts: MatchOptions, online?: OnlineMatch) {
   };
   renderer.toneMappingExposure = course.exposure * 0.92 * r.exposureMul;
   r.onExit = (res) => {
+    portal.gameplayStop();
     if (online) {
       if (res.quit) online.leave();
       else online.finish();
@@ -410,6 +441,7 @@ async function startMatch(opts: MatchOptions, online?: OnlineMatch) {
   try {
     await r.start();
     menus.hide();
+    portal.gameplayStart();
   } catch (e) {
     console.error(e);
     menus.showLoading('Something went wrong loading the course', String(e));
@@ -452,6 +484,8 @@ function applyTextSize() {
 }
 
 async function boot() {
+  // game portal SDK first (no-op off-portal); never hold the game up for it
+  await Promise.race([portal.init(), new Promise((r) => setTimeout(r, 6000))]);
   applyQuality();
   applyTextSize();
   sfx.setEnabled(save.settings.sound);
@@ -463,6 +497,7 @@ async function boot() {
     console.error(e);
   }
   menus.showMain();
+  portal.loadingFinished();
   frame();
   // invite link: ?join=CODE opens Play Online and joins straight away
   const params = new URLSearchParams(location.search);

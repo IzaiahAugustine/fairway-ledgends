@@ -4,12 +4,38 @@
     ".write": false,
     "matches": {
       "$code": {
-        ".read": true,
-        ".write": "$code.length >= 4 && $code.length <= 8",
-        "status": { ".validate": "newData.val() === 'waiting' || newData.val() === 'playing' || newData.val() === 'done'" },
+        ".read": "$code.length >= 4 && $code.length <= 8",
+        ".write": "(!data.exists() && newData.child('status').val() === 'waiting' && newData.hasChildren(['settings', 'host'])) || (!newData.exists() && data.child('status').val() === 'waiting')",
+        "created": { ".validate": "newData.isNumber() && newData.val() <= now" },
+        "settings": {
+          ".validate": "newData.hasChildren(['courseId', 'holes', 'format', 'difficulty', 'seed', 'weather', 'wind', 'gimmes'])",
+          "courseId": { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "seed": { ".validate": "newData.isNumber()" }
+        },
+        "host": { ".validate": "newData.hasChildren(['name', 'appearance']) && newData.child('name').isString() && newData.child('name').val().length <= 40" },
+        "guest": {
+          ".write": "!data.exists() && data.parent().child('status').val() === 'waiting'",
+          ".validate": "newData.hasChildren(['name', 'appearance']) && newData.child('name').isString() && newData.child('name').val().length <= 40"
+        },
+        "status": {
+          ".write": "data.exists()",
+          ".validate": "(!data.exists() && newData.val() === 'waiting') || (data.val() === 'waiting' && (newData.val() === 'playing' || newData.val() === 'done')) || (data.val() === 'playing' && newData.val() === 'done') || data.val() === newData.val()"
+        },
+        "left": {
+          ".write": "!data.exists() && data.parent().exists()",
+          ".validate": "newData.val() === 'host' || newData.val() === 'guest'"
+        },
         "shots": {
-          "$i": { ".validate": "$i.length === 4 && newData.hasChildren(['by', 'hole', 'setup', 'swing'])" }
-        }
+          "$i": {
+            ".write": "!data.exists() && data.parent().parent().child('status').val() === 'playing'",
+            ".validate": "$i.length === 4 && newData.hasChildren(['by', 'hole', 'setup', 'swing']) && (newData.child('by').val() === 'host' || newData.child('by').val() === 'guest')",
+            "settle": {
+              ".write": "!data.exists() && data.parent().exists()",
+              ".validate": "newData.hasChildren(['x', 'y', 'z', 'lie', 'strokes'])"
+            }
+          }
+        },
+        "$other": { ".validate": "false" }
       }
     }
   }

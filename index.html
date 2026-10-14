@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fairway Legends</title>
+    <script>
+      // The game moved from GitHub Pages to its own host. Anyone opening the old address is
+      // forwarded, carrying their progress (saved per site address) and any invite code along.
+      (function () {
+        if (!/github\.io$/.test(location.hostname)) return;
+        var to = 'https://fairway-legends-51e70.web.app/' + location.search;
+        try {
+          var raw = localStorage.getItem('fairwayLegends.save.v1');
+          if (raw) to += '#transfer=' + encodeURIComponent(btoa(unescape(encodeURIComponent(raw))));
+        } catch (e) {}
+        location.replace(to);
+      })();
+    </script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Ccircle cx=%2232%22 cy=%2232%22 r=%2230%22 fill=%22%231f6f43%22/%3E%3Crect x=%2230%22 y=%2212%22 width=%223%22 height=%2236%22 fill=%22%23fff%22/%3E%3Cpath d=%22M33 12 L48 18 L33 24Z%22 fill=%22%23f2c14e%22/%3E%3C/svg%3E" />
   </head>
   <body>

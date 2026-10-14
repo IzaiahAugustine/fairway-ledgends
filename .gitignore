@@ -9,3 +9,6 @@ blender/__pycache__
 blender/renders
 # raw Artlist downloads (~45 MB each); blender/ai_optimize.py builds public/models/ai from them
 blender/ai_models
+dist-poki
+dist-crazygames
+*.zip
