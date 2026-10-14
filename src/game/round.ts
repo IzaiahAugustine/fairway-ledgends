@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { sfx } from '../audio/sfx';
 import { Rng, clamp, toYards } from '../core/rng';
 import { playerLevel, save, type Difficulty } from '../core/save';
-import { CLUBS, PUTT_SHOT, SHOT_TYPES, TIERS, animFor, type ClubDef, type ShotTypeDef } from '../data/clubs';
+import { CLUBS, PUTT_SHOT, SHOT_TYPES, TIERS, animFor, shotTypeById, type ClubDef, type ShotTypeDef } from '../data/clubs';
 import { DRIVING_RANGE, traits, type CourseDef } from '../data/courses';
 import { ballColor } from '../data/cosmetics';
 import { BALL_R, TreeIndex, airDensityAt, sampleAt, simulateShot, type SimEnv, type SimResult } from '../physics/ballPhysics';
@@ -14,6 +14,7 @@ import { HoleField, SURF_NAME, Surf } from '../world/holeGen';
 import { AimOverlay, GreenGrid } from '../world/overlays';
 import { Ball, CourseProps } from '../world/props';
 import { Landmarks } from '../world/landmarks';
+import type { OnlineMatch } from '../net/online';
 import { buildTerrainMesh, cloudUniforms, loadTerrainTextures, terrainSurfaceAt, terrainTime } from '../world/terrain';
 import { GrassField } from '../world/grass';
 import { Divots } from '../world/divots';
@@ -43,6 +44,8 @@ export interface RoundConfig {
   /** Practice: no opponent, holes loop, no XP. */
   practice: boolean;
   options: MatchOptions;
+  /** Online match against a friend: the opponent seat is played by the other browser. */
+  online?: OnlineMatch;
 }
 
 export interface RoundResult {
@@ -114,6 +117,9 @@ export class Round {
   private ai!: Competitor;
   private current!: Competitor;
   private honor: Side = 'player';
+  /** Strokes played so far in the match by both players: the online record's index. */
+  private netShot = 0;
+  private flightNetIdx = -1;
   private rng: Rng;
   private wind = { x: 0, z: 0, mph: 0 };
   private treeIndex: TreeIndex | null = null;
@@ -166,6 +172,8 @@ export class Round {
     private cfg: RoundConfig,
   ) {
     this.rng = new Rng(cfg.seed);
+    // online: the host has the honour on the first tee
+    if (cfg.online) this.honor = cfg.online.seat === 'host' ? 'player' : 'ai';
     // thin mountain air: club yardages and the ball flight both follow the altitude
     setAltitude(cfg.course.altitude ?? 0);
     this.match = new MatchState(cfg.course.holes.map((h) => h.par), cfg.format, cfg.firstHole);
@@ -200,8 +208,10 @@ export class Round {
     ag.applyAppearance(this.cfg.opponent.appearance);
     this.scene.add(pg.root, ag.root);
     const aiTier = AI_SKILL[this.cfg.difficulty].tier;
-    const aiTiers: Record<string, number> = {};
+    let aiTiers: Record<string, number> = {};
     for (const c of CLUBS) aiTiers[c.id] = aiTier;
+    // online: the friend plays their own upgraded bag
+    if (this.cfg.online?.opponent) aiTiers = { ...aiTiers, ...this.cfg.online.opponent.tiers };
     const mk = (side: Side, name: string, color: string, golfer: Golfer, tiers: Record<string, number>, style: SwingStyleId): Competitor => ({
       side, name, color, golfer, ball: new Ball(this.scene, 0xffffff, color), pos: new THREE.Vector3(), lie: Surf.Tee, teed: true, strokes: 0, holed: false, pickedUp: false,
       prev: { pos: new THREE.Vector3(), lie: Surf.Tee, teed: true }, tiers, style,
@@ -310,7 +320,7 @@ export class Round {
     sfx.setRain(W.kind === 'rain');
     this.hud.setWeather(W.kind === 'fair' ? '' : W.label);
     // wind
-    const windSetting = { calm: 0.4, light: 0.7, full: 1 }[save.settings.wind] ?? 0.7;
+    const windSetting = { calm: 0.4, light: 0.7, full: 1 }[this.cfg.online?.settings?.wind ?? save.settings.wind] ?? 0.7;
     const mph = this.rng.range(course.windMin, course.windMax) * W.windMul * windSetting;
     const wa = this.rng.range(0, Math.PI * 2);
     this.wind = { x: Math.cos(wa) * mph * 0.447 * 0.75, z: Math.sin(wa) * mph * 0.447 * 0.75, mph };
@@ -465,6 +475,7 @@ export class Round {
       this.crowd.gatherAt(next.pos, (cup.x - next.pos.x) / d, (cup.z - next.pos.z) / d);
     }
     if (next.side === 'player') this.setupPlayerAim();
+    else if (this.cfg.online) void this.remoteTurn();
     else void this.aiTurn();
   }
 
@@ -859,6 +870,17 @@ export class Round {
     const putting = setup.club.kind === 'putter';
     const launch = launchFor(setup, swing);
     const r = simulateShot(launch, this.simEnv(false, putting));
+    this.flightNetIdx = this.netShot++;
+    if (this.cfg.online && c === this.player) {
+      this.cfg.online.sendShot(this.flightNetIdx, {
+        hole: this.holeIdx,
+        setup: {
+          club: setup.club.id, shot: setup.shot.id, tier: setup.tier, power: setup.power, aimX: setup.aimX, aimZ: setup.aimZ,
+          x: setup.x, y: setup.y, z: setup.z, lie: setup.lie, teed: setup.teed, puttScale: setup.puttScale, style: setup.style, spin: setup.spin,
+        },
+        swing: { ...swing },
+      });
+    }
     c.prev = { pos: c.pos.clone(), lie: c.lie, teed: c.teed };
     this.lastShot = { comp: c, r, setup, start: c.pos.clone() };
     this.tearDivot(c, setup, swing);
@@ -1032,7 +1054,7 @@ export class Round {
       this.finishRangeShot(c, r, f);
       return;
     }
-    if (c.side === 'player' && this.cfg.difficulty === 'easy' && !this.mulliganUsed && (r.outcome === 'water' || r.outcome === 'ob')) {
+    if (c.side === 'player' && !this.cfg.online && this.cfg.difficulty === 'easy' && !this.mulliganUsed && (r.outcome === 'water' || r.outcome === 'ob')) {
       // Easy: the first ball into water or out of bounds on a hole is a free do-over
       this.mulliganUsed = true;
       c.pos.copy(c.prev.pos);
@@ -1103,7 +1125,7 @@ export class Round {
       this.placeBall(c);
       const dist = this.distToCup(c);
       // gimme
-      if (save.settings.gimmes && (c.lie === Surf.Green || c.lie === Surf.Fringe) && dist < GIMME[this.cfg.difficulty]) {
+      if ((this.cfg.online?.settings?.gimmes ?? save.settings.gimmes) && (c.lie === Surf.Green || c.lie === Surf.Fringe) && dist < GIMME[this.cfg.difficulty]) {
         c.strokes++;
         c.holed = true;
         c.ball.setVisible(false);
@@ -1147,10 +1169,34 @@ export class Round {
     }
     this.state = 'between';
     if (this.aiSkip && c === this.ai) delay = Math.min(delay, 1.2);
-    this.after(delay, () => {
-      if (this.holeDecided()) this.endHole();
-      else this.beginTurn();
-    });
+    const proceed = () =>
+      this.after(delay, () => {
+        if (this.holeDecided()) this.endHole();
+        else this.beginTurn();
+      });
+    const net = this.cfg.online;
+    if (!net) proceed();
+    else if (c === this.player) {
+      net.sendSettle(this.flightNetIdx, { x: c.pos.x, y: c.pos.y, z: c.pos.z, lie: c.lie, teed: c.teed, strokes: c.strokes, holed: c.holed, pickedUp: c.pickedUp });
+      proceed();
+    } else {
+      // adopt the shooter's own result, so both rounds always agree on where the ball is
+      void net.settled(this.flightNetIdx).then((w) => {
+        if (this.disposed || !w.settle) return;
+        const st = w.settle;
+        const moved = Math.hypot(st.x - c.pos.x, st.z - c.pos.z) > 0.01;
+        c.pos.set(st.x, st.y, st.z);
+        c.lie = st.lie as Surf;
+        c.teed = st.teed;
+        c.strokes = st.strokes;
+        c.holed = st.holed;
+        c.pickedUp = st.pickedUp;
+        c.ball.setVisible(!c.holed && !c.pickedUp);
+        if (moved) this.placeBall(c);
+        this.refreshHudScores();
+        proceed();
+      });
+    }
   }
 
   /**
@@ -1442,6 +1488,62 @@ export class Round {
     if (this.disposed) return;
     if (!this.aiSkip) this.swooshFor(s.club.kind, plan.swing.power);
     c.golfer.startDownswing(this.aiSkip ? 0.08 : putting ? 0.35 : 0.24, () => this.executeShot(c, s, plan.swing));
+  }
+
+  /** Online: wait for the friend's stroke, then play it out exactly as they hit it. */
+  private async remoteTurn() {
+    const c = this.ai;
+    const net = this.cfg.online!;
+    this.state = 'ai';
+    this.aiSkip = false;
+    this.hud.setAimUi(false);
+    this.hud.setTurn(`${c.name} is lining up…`, 'var(--bad)');
+    const dist = this.distToCup(c);
+    const dirToCup = { x: (this.field.cup.x - c.pos.x) / (dist || 1), z: (this.field.cup.z - c.pos.z) / (dist || 1) };
+    const putting0 = c.lie === Surf.Green;
+    c.golfer.setClub(putting0 ? 'Club_Putter' : 'Club_Iron', c.tiers['7i'] ?? 0);
+    c.golfer.placeForShot(c.pos, dirToCup.x, dirToCup.z, putting0 ? 'Putt' : 'Iron', (x, z) => this.field.heightAt(x, z));
+    this.cam.setAddress(this.field, c.pos, dirToCup.x, dirToCup.z, putting0, false);
+    this.placeBagFor(c, dirToCup);
+    const w = await net.shot(this.netShot);
+    if (this.disposed) return;
+    const club = CLUBS.find((k) => k.id === w.setup.club) ?? CLUBS[0];
+    const s: ShotSetup = {
+      ...w.setup,
+      club,
+      shot: shotTypeById(w.setup.shot),
+      lie: w.setup.lie as Surf,
+      style: w.setup.style as ShotSetup['style'],
+      spin: w.setup.spin as ShotSetup['spin'],
+    };
+    const swing = w.swing as SwingResult;
+    const anim = animFor(s.club, s.shot);
+    c.golfer.setClub(s.club.model, s.tier);
+    c.golfer.placeForShot(c.pos, s.aimX, s.aimZ, anim, (x, z) => this.field.heightAt(x, z));
+    this.props.placeTeePeg(c.pos.x, this.field.heightAt(c.pos.x, c.pos.z), c.pos.z, c.teed && s.club.kind !== 'putter');
+    const putting = s.club.kind === 'putter';
+    this.props.setFlagVisible(!(putting && c.lie === Surf.Green));
+    this.cam.setAddress(this.field, c.pos, s.aimX, s.aimZ, putting, false, this.field.heightAt(this.field.cup.x, this.field.cup.z));
+    this.placeBagFor(c, { x: s.aimX, z: s.aimZ });
+    this.hud.setTurn(`${c.name} · ${s.club.name}${s.shot.id !== 'normal' && s.shot.id !== 'putt' ? ' · ' + s.shot.name : ''}`, 'var(--bad)');
+    // their backswing, then the strike
+    const target = Math.min(1, putting ? 0.35 + 0.65 * Math.min(1, (s.puttScale ?? 5) / 20) : swing.power);
+    const dur = putting ? 0.7 : 0.95;
+    await new Promise<void>((res) => {
+      let t = 0;
+      const step = () => {
+        if (this.disposed) return;
+        t += 1 / 60;
+        const u = Math.min(1, t / dur);
+        c.golfer.setBackswing(target * (1 - (1 - u) * (1 - u)));
+        if (u >= 1) res();
+        else this.after(1 / 60, step);
+      };
+      step();
+    });
+    if (this.disposed) return;
+    this.swooshFor(s.club.kind, swing.power);
+    c.golfer.startDownswing(putting ? 0.35 : 0.24, () => this.executeShot(c, s, swing));
   }
 
   /** The opponent is lining up, swinging, or their ball is in the air. */

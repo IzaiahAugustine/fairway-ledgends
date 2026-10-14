@@ -1,0 +1,16 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "matches": {
+      "$code": {
+        ".read": true,
+        ".write": "$code.length >= 4 && $code.length <= 8",
+        "status": { ".validate": "newData.val() === 'waiting' || newData.val() === 'playing' || newData.val() === 'done'" },
+        "shots": {
+          "$i": { ".validate": "$i.length === 4 && newData.hasChildren(['by', 'hole', 'setup', 'swing'])" }
+        }
+      }
+    }
+  }
+}

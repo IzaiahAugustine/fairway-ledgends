@@ -13,7 +13,8 @@ import { TEXT_SCALE, persist, save, type Appearance } from './core/save';
 import { HOLE_SETS, courseById, courseForSet } from './data/courses';
 import { careerEvent } from './data/career';
 import { FORMATS, type MatchOptions } from './game/match';
-import { makeOpponent, planAiShot } from './game/ai';
+import { PERSONALITIES, makeOpponent, planAiShot, type Opponent } from './game/ai';
+import type { OnlineMatch } from './net/online';
 import { MenuStage, type StageMode } from './game/menuStage';
 import { Round } from './game/round';
 import { Hud } from './ui/hud';
@@ -170,6 +171,10 @@ let paused = false;
 
 const menus = new Menus(uiRoot, {
   startMatch: (opts) => void startMatch(opts),
+  startOnline: (m) => {
+    const st = m.settings!;
+    void startMatch({ courseId: st.courseId, difficulty: st.difficulty, format: st.format, holes: st.holes, weather: st.weather }, m);
+  },
   previewAppearance: (a) => applyStageAppearance(a),
   showroom: (m) => {
     stageMode = m;
@@ -339,7 +344,7 @@ function setPaused(p: boolean) {
   else menus.hide();
 }
 
-async function startMatch(opts: MatchOptions) {
+async function startMatch(opts: MatchOptions, online?: OnlineMatch) {
   const full = courseById(opts.courseId);
   const { course, firstHole } = courseForSet(full, opts.practice ? 'all' : opts.holes);
   const diff = opts.difficulty;
@@ -354,14 +359,25 @@ async function startMatch(opts: MatchOptions) {
     round = null;
   }
   await new Promise((r) => setTimeout(r, 30));
-  const seed = (hashString(course.id) ^ Date.now()) >>> 0;
-  // a career event always brings the same opponent
-  const opp = ev ? makeOpponent(hashString(ev.id), ev.personality) : makeOpponent(seed);
+  const seed = online?.settings ? online.settings.seed : (hashString(course.id) ^ Date.now()) >>> 0;
+  // a career event always brings the same opponent; online it's the friend
+  const friend = online?.opponent;
+  const opp: Opponent = friend
+    ? { name: friend.name, appearance: friend.appearance, personality: { ...PERSONALITIES[0], id: 'friend', label: 'Friend', style: friend.style } }
+    : ev
+      ? makeOpponent(hashString(ev.id), ev.personality)
+      : makeOpponent(seed);
   renderer.toneMappingExposure = course.exposure * 0.92;
   courseEnv.setQuality(save.settings.quality);
   const r = new Round(courseScene, camera, courseEnv, hud, canvas, {
-    course, difficulty: diff, opponent: opp, seed, format: opts.practice ? 'stroke' : opts.format, firstHole, practice: !!opts.practice, options: opts,
+    course, difficulty: diff, opponent: opp, seed, format: opts.practice ? 'stroke' : opts.format, firstHole, practice: !!opts.practice, options: opts, online,
   });
+  if (online) {
+    online.onOpponentLeft = () => {
+      hud.showBanner('FRIEND LEFT', `${opp.name} has left the match`, 'bad', 3500);
+      setTimeout(() => r.quit(), 3500);
+    };
+  }
   round = r;
   r.onPause = () => setPaused(!paused);
   applyAudio();
@@ -376,6 +392,11 @@ async function startMatch(opts: MatchOptions) {
   };
   renderer.toneMappingExposure = course.exposure * 0.92 * r.exposureMul;
   r.onExit = (res) => {
+    if (online) {
+      if (res.quit) online.leave();
+      else online.finish();
+      online.onOpponentLeft = null;
+    }
     r.dispose();
     if (round === r) round = null;
     renderer.toneMappingExposure = STAGE_EXPOSURE;
@@ -443,6 +464,15 @@ async function boot() {
   }
   menus.showMain();
   frame();
+  // invite link: ?join=CODE opens Play Online and joins straight away
+  const params = new URLSearchParams(location.search);
+  const joinCode = params.get('join');
+  if (joinCode) {
+    // drop the code from the address bar (so a reload doesn't rejoin) but keep any other flags
+    params.delete('join');
+    history.replaceState(null, '', location.pathname + (params.size ? `?${params}` : ''));
+    menus.showOnline(joinCode);
+  }
   // debug hook for automated testing (dev server, or ?debug)
   if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug'))
     (window as unknown as Record<string, unknown>).__golf = { startMatch, dynRes, music, sfx, get round() { return round; }, save, debug, menus, planAiShot, renderer, courseEnv, stage, gtao: coursePipe.gtao, pipes: { course: coursePipe, stage: stagePipe } };

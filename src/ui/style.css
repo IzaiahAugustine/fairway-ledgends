@@ -197,12 +197,18 @@ canvas#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: bl
 /* main menu: left column over a scrim, player card top-right, right side left clear for the 3D scene */
 .menu-main {
   flex-direction: column; align-items: flex-start;
-  padding: clamp(18px, 4.8vh, 50px) var(--gut) clamp(50px, 9vh, 86px);
+  /* scrolls when the tiles don't fit (short windows, large text); the column still sits at the
+     bottom whenever there's room */
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(242, 193, 78, 0.45) transparent;
+  padding: clamp(18px, 4.8vh, 50px) var(--gut) clamp(14px, 3.2vh, 32px);
   background:
     linear-gradient(90deg, rgba(var(--ink), 0.92) 0%, rgba(var(--ink), 0.8) 24%, rgba(var(--ink), 0.42) 44%, rgba(var(--ink), 0) 60%),
     linear-gradient(0deg, rgba(var(--ink), 0.55) 0%, rgba(var(--ink), 0) 28%),
     linear-gradient(180deg, rgba(var(--ink), 0.45) 0%, rgba(var(--ink), 0) 22%);
 }
+.menu-main > * { flex-shrink: 0; }
+.menu-main::-webkit-scrollbar { width: 8px; }
+.menu-main::-webkit-scrollbar-thumb { border-radius: 4px; background: rgba(242, 193, 78, 0.45); }
 .mm-brand { display: flex; align-items: center; gap: calc(14px * var(--fs)); }
 .mm-brand .crest { height: min(calc(110px * var(--fs)), 17vh); width: auto; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.55)); }
 .wordmark { font-family: var(--display); font-weight: 800; font-size: min(calc(58px * var(--fs)), 9vh); line-height: 0.84; letter-spacing: 0.01em; text-transform: uppercase; filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.45)); }
@@ -261,7 +267,7 @@ canvas#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: bl
 .mm-tile .badge { padding: 2px 7px; border-radius: 99px; background: var(--gold-grad); color: #1b1405; font-family: var(--ui); font-size: calc(10px * var(--fs)); font-weight: 800; line-height: 1.3; letter-spacing: 0.02em; }
 .mm-tile:hover .ib, .mm-tile:focus-visible .ib { background: var(--gold-grad); color: #1b1405; border-color: transparent; }
 
-.mm-foot { position: absolute; left: var(--gut); bottom: clamp(14px, 3.2vh, 32px); display: flex; gap: 22px; font-size: calc(11px * var(--fs)); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255, 255, 255, 0.6); }
+.mm-foot { margin-top: clamp(12px, 2.4vh, 24px); display: flex; gap: 22px; font-size: calc(11px * var(--fs)); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255, 255, 255, 0.6); }
 .mm-foot span { display: flex; align-items: center; gap: 4px; }
 .mm-foot .kc:last-of-type { margin-right: 5px; }
 
@@ -622,3 +628,13 @@ canvas#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: bl
 .toggle-row .vol { display: flex; align-items: center; gap: 12px; min-width: calc(240px * var(--fs)); }
 .toggle-row .vol input { flex: 1; accent-color: var(--gold); }
 .toggle-row .vol b { min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; color: var(--gold); }
+
+/* online: join code box and match lobby */
+.online .m-card p { color: #c8d1d8; line-height: 1.5; }
+.online .m-card .btn { margin-top: calc(12px * var(--fs)); }
+.code-input { display: block; width: 100%; box-sizing: border-box; margin-top: calc(10px * var(--fs)); padding: calc(12px * var(--fs)) calc(14px * var(--fs)); border-radius: 12px; border: 1px solid var(--edge-hi); background: rgba(0, 0, 0, 0.35); color: var(--text); font-family: var(--display); font-weight: 800; font-size: calc(30px * var(--fs)); letter-spacing: 0.3em; text-align: center; text-transform: uppercase; }
+.code-input:focus { outline: none; border-color: var(--gold); box-shadow: var(--glow); }
+.online-msg { margin-top: calc(10px * var(--fs)); color: var(--muted); font-size: calc(14px * var(--fs)); }
+.lobby { max-width: 640px; }
+.lobby-code { margin: calc(8px * var(--fs)) 0; font-family: var(--display); font-weight: 800; font-size: calc(64px * var(--fs)); letter-spacing: 0.25em; color: var(--gold); }
+.lobby-link { word-break: break-all; font-size: calc(13px * var(--fs)); color: var(--muted) !important; }

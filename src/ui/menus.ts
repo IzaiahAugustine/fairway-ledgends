@@ -17,10 +17,15 @@ import { PERFECT_SWING, fullCarry, launchFor } from '../game/shotModel';
 import { FORMATS, computeXp, type Format, type MatchOptions, type MatchState } from '../game/match';
 import { PERSONALITIES } from '../game/ai';
 import { Surf } from '../world/holeGen';
+import { pickWeather } from '../world/weather';
+import { Rng } from '../core/rng';
+import { OnlineMatch, onlineAvailable, type OnlinePlayer, type OnlineSettings } from '../net/online';
 import { clear, esc, h } from './dom';
 
 export interface MenuHooks {
   startMatch(opts: MatchOptions): void;
+  /** Both seats of an online match are filled: start the round. */
+  startOnline(m: OnlineMatch): void;
   previewAppearance(a: Appearance): void;
   showroom(mode: 'menu' | 'editor' | 'shop' | 'swing' | 'none'): void;
   /** Swing-style screen: show this style's swing on the golfer (null to stop). */
@@ -45,6 +50,7 @@ const svg = (body: string) =>
   `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const ICON = {
   lock: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
+  globe: svg('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.5 3.9 5.5 3.9 9s-1.3 6.5-3.9 9c-2.6-2.5-3.9-5.5-3.9-9s1.3-6.5 3.9-9Z"/>'),
   golfer: svg('<circle cx="12" cy="7.6" r="3.4"/><path d="M8.2 6.3h8.8"/><path d="M4.8 21c.7-4.3 3.6-7 7.2-7s6.5 2.7 7.2 7"/>'),
   bag: svg('<path d="M8 9.5h8l-.9 10.7a1.6 1.6 0 0 1-1.6 1.3h-3a1.6 1.6 0 0 1-1.6-1.3Z"/><path d="M9.6 9.5V4M12 9.5V2.8M14.3 9.5l1.6-5"/><path d="M8.5 14h7"/>'),
   sliders: svg('<path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/>'),
@@ -486,6 +492,7 @@ export class Menus {
     const textSize = { normal: 'Normal', large: 'Large', xl: 'Extra large' }[save.settings.textSize];
     const nextEv = CAREER[Math.min(save.career.stage, CAREER.length - 1)];
     tile(3, 'career', ICON.trophy, 'Career', save.career.stage >= CAREER.length ? 'Champion! Replay any event' : `Next: ${nextEv.title}`, () => this.showCareer(), `${Math.min(save.career.stage, CAREER.length)}/${CAREER.length}`);
+    tile(3, 'online', ICON.globe, 'Play Online', 'Challenge a friend', () => this.showOnline());
     tile(3, 'practice', ICON.play, 'Practice', 'No opponent, no pressure', () => this.showPlay(true));
     tile(3, 'golfer', ICON.golfer, 'My Golfer', 'Customize your look', () => this.showEditor());
     tile(3, 'swing', ICON.play, 'Swing Style', `${swingStyleById(save.swingStyle).name} · watch them all`, () => this.showSwing());
@@ -502,12 +509,14 @@ export class Menus {
 
   // ---------------------------------------------------------------- match setup
 
-  showPlay(practice = false) {
+  showPlay(practice = false, online = false) {
     this.hooks.showroom('menu');
     // the range is only on the practice page
     if (!practice && this.selCourse === DRIVING_RANGE.id) this.selCourse = save.settings.courseId;
     const el = h('div', { class: 'screen page setup' });
-    const head = practice
+    const head = online
+      ? this.pageHead('Online', 'Online Match Setup', 'Pick the course, holes, format and difficulty for you and your friend. You get a code and a link to send them.', () => this.showOnline())
+      : practice
       ? this.pageHead('Practice', 'Practice', 'No opponent and no score to protect. Warm up on the driving range, or play any hole as often as you like: N skips to the next hole, B drops a ball on the green to practise putting.', () => this.showMain())
       : this.pageHead('Play', 'Match Setup', 'Pick a course, the holes, a format and difficulty. Good swings, holes won and birdies earn XP. Winning the match earns the most.', () => this.showMain());
     const sets = h('div', { class: 'chips seg wide' });
@@ -594,9 +603,9 @@ export class Menus {
     const bar = h('div', { class: 'action-bar' });
     const bag = h('button', { class: 'btn' });
     bag.innerHTML = `${ICON.bag}<span>Check my bag</span>`;
-    bag.onclick = () => this.showShop(() => this.showPlay());
+    bag.onclick = () => this.showShop(() => this.showPlay(practice, online));
     const go = h('button', { class: 'btn primary big' });
-    go.innerHTML = `<span>${practice ? 'Start Practice' : 'Tee Off'}</span>${ICON.play}`;
+    go.innerHTML = `<span>${practice ? 'Start Practice' : online ? 'Create Match' : 'Tee Off'}</span>${online ? ICON.globe : ICON.play}`;
     if (practice) go.dataset.k = 'start-practice';
     go.onclick = () => {
       if (this.selCourse !== DRIVING_RANGE.id) save.settings.courseId = this.selCourse;
@@ -606,13 +615,17 @@ export class Menus {
         save.settings.holes = this.selHoles;
       }
       persist();
+      if (online) {
+        void this.createOnline();
+        return;
+      }
       this.hooks.startMatch({ courseId: this.selCourse, difficulty: practice ? save.settings.difficulty : this.selDiff, format: this.selFormat, holes: this.selHoles, practice });
     };
     bar.append(summary, bag, go);
     refresh();
     const watch = h('button', { class: 'btn watch-swings' });
     watch.innerHTML = `${ICON.play}<span>Watch the swings</span>`;
-    watch.onclick = () => this.showSwing(() => this.showPlay(practice));
+    watch.onclick = () => this.showSwing(() => this.showPlay(practice, online));
     const styleHead = (n: number) => {
       const t = this.sectionTitle(n, 'Swing style');
       t.append(watch);
@@ -1028,6 +1041,113 @@ export class Menus {
   }
 
   // ---------------------------------------------------------------- how to play
+
+  // ---------------------------------------------------------------- online
+
+  private onlineMe(): OnlinePlayer {
+    return { name: save.name || 'Player', appearance: save.appearance, tiers: { ...save.clubs }, style: save.swingStyle };
+  }
+
+  /** Play Online: create a match for a friend, or join theirs with a code. */
+  showOnline(joinCode = '') {
+    this.hooks.showroom('menu');
+    const el = h('div', { class: 'screen page online' });
+    const head = this.pageHead('Online', 'Play a Friend', 'Play a match against a friend on their own computer. One of you creates the match and sends the code or link; the other joins. You take turns, and you watch their shots live.', () => this.showMain());
+    const grid = h('div', { class: 'guide-grid' });
+    if (!onlineAvailable()) {
+      const c = h('div', { class: 'm-card' });
+      c.innerHTML = `<div class="card-title">Not set up yet</div><p>Online play needs the game's Firebase project to be connected. Add the project's web config to <b>src/net/firebaseConfig.ts</b> and redeploy.</p>`;
+      grid.append(c);
+      el.append(head, grid);
+      this.set(el);
+      return;
+    }
+    const create = h('div', { class: 'm-card' });
+    create.innerHTML = `<div class="card-title">Create a match</div><p>Choose the course, holes, format and difficulty. You'll get a code to send your friend.</p>`;
+    const cb = h('button', { class: 'btn primary big', 'data-k': 'online-create' });
+    cb.innerHTML = `<span>Create Match</span>${ICON.globe}`;
+    cb.onclick = () => this.showPlay(false, true);
+    create.append(cb);
+    const join = h('div', { class: 'm-card' });
+    join.innerHTML = `<div class="card-title">Join a match</div><p>Type the code your friend sent you (or just open their link).</p>`;
+    const input = h('input', { class: 'code-input', maxlength: '8', placeholder: 'CODE', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Match code' }) as HTMLInputElement;
+    input.value = joinCode;
+    const msg = h('div', { class: 'online-msg' });
+    const jb = h('button', { class: 'btn primary big', 'data-k': 'online-join' });
+    jb.innerHTML = `<span>Join</span>${ICON.play}`;
+    const doJoin = async () => {
+      const code = input.value.trim();
+      if (!code) return;
+      jb.setAttribute('disabled', '');
+      msg.textContent = 'Joining…';
+      try {
+        const m = await OnlineMatch.join(code, this.onlineMe());
+        this.hooks.startOnline(m);
+      } catch (e) {
+        msg.textContent = e instanceof Error ? e.message : String(e);
+        jb.removeAttribute('disabled');
+      }
+    };
+    jb.onclick = () => void doJoin();
+    input.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') void doJoin();
+    };
+    join.append(input, jb, msg);
+    grid.append(create, join);
+    el.append(head, grid);
+    this.set(el);
+    if (joinCode) void doJoin();
+  }
+
+  private async createOnline() {
+    const course = courseById(this.selCourse);
+    const seed = (Math.random() * 0xffffffff) >>> 0;
+    const settings: OnlineSettings = {
+      courseId: this.selCourse,
+      holes: this.selHoles,
+      format: this.selFormat,
+      difficulty: this.selDiff,
+      seed,
+      weather: pickWeather(course, new Rng(seed ^ 0x9e3779b9), save.settings.weather).kind,
+      wind: save.settings.wind,
+      gimmes: save.settings.gimmes,
+    };
+    const el = h('div', { class: 'screen page online' });
+    let m: OnlineMatch | null = null;
+    const cancel = () => {
+      m?.leave();
+      this.showOnline();
+    };
+    el.append(this.pageHead('Online', 'Waiting for your friend', `${course.name} · ${HOLE_SETS.find((x) => x.id === settings.holes)?.name ?? ''} · ${FORMATS.find((x) => x.id === settings.format)?.name ?? ''} · ${DIFF_INFO[settings.difficulty].name}`, cancel));
+    const card = h('div', { class: 'm-card lobby' });
+    card.innerHTML = `<div class="card-title">Creating the match…</div>`;
+    el.append(card);
+    this.set(el);
+    try {
+      m = await OnlineMatch.create(settings, this.onlineMe());
+    } catch (e) {
+      card.innerHTML = `<div class="card-title">Couldn't create the match</div><p>${esc(e instanceof Error ? e.message : String(e))}</p>`;
+      return;
+    }
+    const match = m;
+    card.innerHTML = `<div class="card-title">Send your friend this code</div><div class="lobby-code">${esc(match.code)}</div><p class="lobby-link">${esc(match.link)}</p>`;
+    const copy = h('button', { class: 'btn', 'data-k': 'online-copy' });
+    copy.innerHTML = `<span>Copy invite link</span>`;
+    copy.onclick = () => {
+      void navigator.clipboard?.writeText(match.link).then(() => (copy.innerHTML = '<span>Copied!</span>'));
+    };
+    const wait = h('p', { class: 'online-msg' }, 'Waiting for your friend to join…');
+    card.append(copy, wait);
+    let started = false;
+    match.onChange = (rec) => {
+      if (started || rec.status !== 'playing' || !rec.guest) return;
+      started = true;
+      match.onChange = null;
+      wait.textContent = `${rec.guest.name} joined — teeing off!`;
+      setTimeout(() => this.hooks.startOnline(match), 900);
+    };
+  }
 
   showHelp(onBack?: () => void) {
     const el = h('div', { class: 'screen page guide' });
