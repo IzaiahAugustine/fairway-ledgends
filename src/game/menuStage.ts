@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import type { Appearance, Quality } from '../core/save';
 import { courseById } from '../data/courses';
+import { ballColor } from '../data/cosmetics';
 import { SkyEnvironment } from '../world/environment';
 import { GrassField } from '../world/grass';
 import { HoleField } from '../world/holeGen';
@@ -173,6 +174,12 @@ export class MenuStage {
 
   applyAppearance(a: Appearance) {
     this.golfer?.applyAppearance(a);
+    const bc = ballColor(a.ball);
+    const m = this.demoBall?.material as THREE.MeshStandardMaterial | undefined;
+    if (m) {
+      m.color.setHex(bc.hex);
+      m.metalness = bc.metal ?? 0;
+    }
   }
 
   setClub(model: string, tier: number) {

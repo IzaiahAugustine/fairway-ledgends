@@ -81,6 +81,10 @@ export function makeOpponent(seed: number, personality?: string): Opponent {
       sunglasses: rng.chance(0.35),
       build: rng.range(0, 0.6),
       height: rng.range(1.74, 1.9),
+      shirtPattern: rng.pick(['Solid', 'Solid', 'Pinstripe', 'Chest Band', 'Sleeves'] as const),
+      shirtAccent: rng.pick(['#111111', '#f2f2f2', '#0b3d91', '#b5121b', '#f2c14e']),
+      ball: 'white',
+      clubFinish: rng.pick(['standard', 'standard', 'black']),
     },
   };
 }

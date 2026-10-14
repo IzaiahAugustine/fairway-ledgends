@@ -382,6 +382,13 @@ canvas#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: bl
 .menus input[type=range]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--gold); }
 .menus input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 3px solid var(--gold); }
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+/* level-locked cosmetics */
+.chips.seg.wrap { display: flex; flex-wrap: wrap; }
+.chip.locked { opacity: 0.5; cursor: not-allowed; display: inline-flex; align-items: center; gap: 6px; }
+.chip.locked svg { width: 1em; height: 1em; }
+.chip.locked small { font-size: 0.8em; font-weight: 700; color: var(--gold); }
+.swatch.locked { cursor: not-allowed; filter: saturate(0.35) brightness(0.6); display: grid; place-items: center; }
+.swatch.locked .lv { font-size: calc(10px * var(--fs)); font-weight: 800; color: #fff; text-shadow: 0 1px 2px #000; }
 .swatch { position: relative; width: calc(26px * var(--fs)); height: calc(26px * var(--fs)); border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.16); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25); cursor: pointer; transition: transform 0.12s var(--ease), box-shadow 0.12s, border-color 0.12s; }
 .swatch:hover, .swatch:focus-visible { transform: scale(1.14); border-color: rgba(255, 255, 255, 0.75); }
 .swatch.sel { border-color: #0a1016; box-shadow: 0 0 0 2px var(--gold), 0 0 12px rgba(242, 193, 78, 0.45); }

@@ -3,6 +3,7 @@ import { CLUBS } from '../data/clubs';
 import type { SwingStyleId } from '../data/swingStyles';
 import type { HoleSet } from '../data/courses';
 import type { Format } from '../game/match';
+import type { ShirtPattern } from '../data/cosmetics';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 export type SwingMode = 'stick' | 'threeClick';
@@ -24,6 +25,11 @@ export interface Appearance {
   sunglasses: boolean;
   build: number; // 0 slim .. 1 heavy
   height: number; // metres
+  /** Level unlocks (data/cosmetics). */
+  shirtPattern: ShirtPattern;
+  shirtAccent: string;
+  ball: string;
+  clubFinish: string;
 }
 
 export interface SaveData {
@@ -45,7 +51,9 @@ export interface SaveData {
     /** How strong the wind blows in rounds. */
     wind: 'calm' | 'light' | 'full';
     /** What the automatic quality protects first: frame rate, a balance, or how it looks. */
-    gfxPriority: 'smooth' | 'balanced' | 'quality' };
+    gfxPriority: 'smooth' | 'balanced' | 'quality';
+    /** Step the graphics quality down between holes when the game keeps running slowly. */
+    autoGfx: boolean };
   /** Career mode: index of the next event to win. */
   career: { stage: number };
 }
@@ -65,6 +73,10 @@ export const DEFAULT_APPEARANCE: Appearance = {
   sunglasses: false,
   build: 0.25,
   height: 1.8,
+  shirtPattern: 'Solid',
+  shirtAccent: '#1c2b4a',
+  ball: 'white',
+  clubFinish: 'standard',
 };
 
 function defaults(): SaveData {
@@ -80,7 +92,7 @@ function defaults(): SaveData {
     stats: { played: 0, won: 0, lost: 0, halved: 0, holesWon: 0, birdies: 0, eagles: 0, aces: 0 },
     best: {},
     swingStyle: 'classic',
-    settings: { swingMode: 'stick', gimmes: true, sound: true, quality: 'high', difficulty: 'medium', courseId: 'coral-cove', textSize: 'large', format: 'match', holes: 'front', weather: 'random', volMaster: 0.7, volEffects: 0.8, volAmbience: 0.5, volMusic: 0.5, musicInRound: false, wind: 'light', gfxPriority: 'balanced' },
+    settings: { swingMode: 'stick', gimmes: true, sound: true, quality: 'high', difficulty: 'medium', courseId: 'coral-cove', textSize: 'large', format: 'match', holes: 'front', weather: 'random', volMaster: 0.7, volEffects: 0.8, volAmbience: 0.5, volMusic: 0.5, musicInRound: false, wind: 'light', gfxPriority: 'balanced', autoGfx: true },
     career: { stage: 0 },
   };
 }

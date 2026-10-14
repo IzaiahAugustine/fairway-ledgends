@@ -113,6 +113,14 @@ export class Ball {
     m.emissive.setHex(hex);
   }
 
+  /** The player's ball colour (data/cosmetics): a coloured cover, metallic for the gold one. */
+  setFinish(hex: number, metal = 0) {
+    this.setColor(hex);
+    const m = this.mesh.material as THREE.MeshPhysicalMaterial;
+    m.metalness = metal;
+    m.roughness = metal > 0 ? 0.22 : 0.32;
+  }
+
   /** Physics position, and the ground height there (null: no contact shadow). */
   setPosition(p: THREE.Vector3, groundY: number | null) {
     this.pos.copy(p);

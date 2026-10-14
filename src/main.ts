@@ -9,7 +9,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { music } from './audio/music';
 import { sfx } from './audio/sfx';
 import { hashString } from './core/rng';
-import { TEXT_SCALE, save, type Appearance } from './core/save';
+import { TEXT_SCALE, persist, save, type Appearance } from './core/save';
 import { HOLE_SETS, courseById, courseForSet } from './data/courses';
 import { careerEvent } from './data/career';
 import { FORMATS, type MatchOptions } from './game/match';
@@ -240,11 +240,34 @@ function updateDynamicResolution(frameMs: number) {
   let l = dynRes.level;
   if (dynRes.avgMs > slow) l = Math.min(DYN_SCALES.length - 1, l + 1);
   else if (dynRes.avgMs < fast) l = Math.max(0, l - 1);
+  autoLowerQuality(frameMs, slow);
   if (l === dynRes.level) return;
   // climbing back up costs more than it saves if it immediately drops again: wait longer before trying
   dynRes.cooldown = l < dynRes.level ? 4 : 1.5;
   dynRes.level = l;
   applyRenderLevel();
+}
+
+/**
+ * Auto graphics: when a round keeps running slowly even at the bottom of the resolution ladder,
+ * step the quality setting down. The new grass, tree and terrain detail take effect from the next
+ * hole (rebuilding them mid-hole would hitch); the shadow map shrinks straight away.
+ */
+let slowFor = 0;
+function autoLowerQuality(frameMs: number, slow: number) {
+  const st = save.settings;
+  if (!round || paused || !st.autoGfx || st.quality === 'low' || st.gfxPriority === 'quality') {
+    slowFor = 0;
+    return;
+  }
+  const atBottom = dynRes.level === DYN_SCALES.length - 1;
+  slowFor = atBottom && dynRes.avgMs > slow ? slowFor + frameMs / 1000 : Math.max(0, slowFor - frameMs / 2000);
+  if (slowFor < 8) return;
+  slowFor = 0;
+  st.quality = st.quality === 'high' ? 'medium' : 'low';
+  persist();
+  courseEnv.setQuality(st.quality);
+  hud.showBanner('SMOOTHER GRAPHICS', `Switched to ${st.quality === 'medium' ? 'Medium' : 'Low'} quality from the next hole · change it in Settings`, '', 3200);
 }
 
 function applyQuality() {

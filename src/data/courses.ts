@@ -370,7 +370,33 @@ export const COURSES: CourseDef[] = [
   },
 ];
 
+/** Practice only: a wide, flat range with target greens (see world/rangeTargets). */
+export const DRIVING_RANGE: CourseDef = {
+  id: 'driving-range',
+  name: 'Driving Range',
+  location: 'Practice ground',
+  blurb: 'Hit balls at target greens from 60 to 250 yards. Every shot is measured and the ball comes straight back to the tee.',
+  style: 'parkland',
+  hdri: 'kloppenheim_05_puresky',
+  envIntensity: 0.75,
+  sunIntensity: 4.0,
+  exposure: 0.95,
+  trees: ['Tree_Oak', 'Tree_Oak', 'Tree_Birch', 'Tree_Pine'],
+  treeDensity: 0.45,
+  bushes: ['Bush_Green'],
+  bushDensity: 0.1,
+  fescue: false,
+  relief: 2,
+  dunes: 0,
+  firmness: 0.9,
+  windMin: 0,
+  windMax: 7,
+  colors: { fairway: 0x63a03a, rough: 0x55862f, green: 0x52983a, deep: 0x5a6e2e, sand: 0xe0d5bc, fescue: 0x8a8a44 },
+  holes: [{ par: 5, yards: 400, name: 'Driving Range', greenBunkers: 0, fairwayBunkers: 0, fwWidth: 3.4, greenSize: 1.3 }],
+};
+
 export function courseById(id: string): CourseDef {
+  if (id === DRIVING_RANGE.id) return DRIVING_RANGE;
   return COURSES.find((c) => c.id === id) ?? COURSES[0];
 }
 

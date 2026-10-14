@@ -122,6 +122,15 @@ export class Hud {
       <div class="strokes"></div>`;
   }
 
+  /** The driving range has no hole: name the ground and its targets instead. */
+  setRange(title: string, sub: string) {
+    this.holeCard.innerHTML = `
+      <div class="course">Practice ground</div>
+      <div class="hole"><b>${esc(title.toUpperCase())}</b></div>
+      <div class="hole-name">${esc(sub)}</div>
+      <div class="strokes"></div>`;
+  }
+
   setStrokes(rows: { name: string; strokes: number; color: string; active: boolean; holed: boolean; lie: string }[]) {
     const el = this.holeCard.querySelector('.strokes');
     if (!el) return;
@@ -167,14 +176,14 @@ export class Hud {
   }
 
   /** Level progress, spendable balance, XP banked this match and what a win is worth. */
-  setXp(x: { level: number; into: number; next: number; balance: number; match: number; win: number; last: number | null }) {
+  setXp(x: { level: number; into: number; next: number; balance: number; match: number; win: number; last: number | null; practice?: boolean }) {
     this.xpChip.innerHTML = `
       <div class="top"><span class="lv">LV ${x.level}</span><span class="bal"><b>${x.balance.toLocaleString()}</b> XP</span></div>
       <div class="xpbar"><i style="width:${Math.round((x.into / x.next) * 100)}%"></i></div>
       <div class="sub"><span>${x.into} / ${x.next} to LV ${x.level + 1}</span></div>
-      <div class="sub"><span>Last swing</span><b>${x.last === null ? '—' : `+${x.last}`}</b></div>
+      ${x.practice ? '<div class="sub"><span>Practice: no XP</span></div>' : `<div class="sub"><span>Last swing</span><b>${x.last === null ? '—' : `+${x.last}`}</b></div>
       <div class="sub"><span>This match</span><b class="m">+${x.match}</b></div>
-      <div class="sub"><span>Win bonus</span><b>+${x.win}</b></div>`;
+      <div class="sub"><span>Win bonus</span><b>+${x.win}</b></div>`}`;
   }
 
   /** Floating "+N XP" call-out next to the XP chip. */
@@ -296,8 +305,9 @@ export class Hud {
     this.resultTimer = ms / 1000;
   }
 
-  showIntro(hole: number, par: number, yards: number, name: string | undefined, hcp: string, extra: string[] = []) {
-    this.intro.innerHTML = `<div class="n">${esc(hcp)}</div><div class="h">HOLE ${hole}</div><div class="y">Par ${par} · ${yards} yards${name ? ` · “${esc(name)}”` : ''}</div>${extra.map((x) => `<div class="x">${esc(x)}</div>`).join('')}<div class="skip"><span class="key">Space</span> skip flyover</div>`;
+  showIntro(hole: number, par: number, yards: number, name: string | undefined, hcp: string, extra: string[] = [], title?: string) {
+    const head = title ? `<div class="h">${esc(title.toUpperCase())}</div>` : `<div class="h">HOLE ${hole}</div><div class="y">Par ${par} · ${yards} yards${name ? ` · “${esc(name)}”` : ''}</div>`;
+    this.intro.innerHTML = `<div class="n">${esc(hcp)}</div>${head}${extra.map((x) => `<div class="x">${esc(x)}</div>`).join('')}<div class="skip"><span class="key">Space</span> skip flyover</div>`;
     this.intro.classList.remove('hidden');
   }
 

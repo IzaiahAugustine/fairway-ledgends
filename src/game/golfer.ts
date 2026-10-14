@@ -2,6 +2,7 @@
 // driven by the player's input (the backswing follows the mouse, the downswing plays at the
 // player's tempo).
 import * as THREE from 'three';
+import { clubFinish, shirtPatternCode } from '../data/cosmetics';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { loadGLTF } from '../core/assets';
 import type { Appearance } from '../core/save';
@@ -100,6 +101,10 @@ export class Golfer {
   private followElapsed = 0;
   private followDur = 0.9;
   private neck: THREE.Object3D | null = null;
+  /** Shirt pattern (data/cosmetics code) and its accent colour, read by the shirt shader. */
+  private shirtUniforms = { uPattern: { value: 0 }, uAccent: { value: new THREE.Color(0x1c2b4a) } };
+  private finish = clubFinish('standard');
+  private clubTier = 0;
   /** Chin lift (radians) on full swings: eyes on the ball without burying the chin. */
   static CHIN_LIFT = 0.13;
   /** Seconds over which the head comes up after impact to watch the ball. */
@@ -157,6 +162,7 @@ export class Golfer {
       if (mesh.morphTargetDictionary && mesh.morphTargetDictionary['Heavy'] !== undefined) this.morphMeshes.push(mesh);
     });
     this.mats.get('Skin')?.forEach(skinShading);
+    this.mats.get('Shirt')?.forEach((m) => this.shirtPattern(m));
     this.mats.get('Eyes')?.forEach(eyeShading);
     // soft hairline / brow / lash edges: with no alpha cutoff the texture's alpha gradient maps
     // straight to MSAA coverage (the scene renders into a 4x MSAA target; shadows still cut at 0.5)
@@ -254,16 +260,68 @@ export class Golfer {
     }
     this.scale = a.height / 1.8;
     if (this.model) this.model.scale.setScalar(this.scale);
+    this.shirtUniforms.uPattern.value = shirtPatternCode(a.shirtPattern);
+    this.shirtUniforms.uAccent.value.set(a.shirtAccent ?? '#1c2b4a');
+    this.finish = clubFinish(a.clubFinish);
+    this.paintClubHead();
+  }
+
+  /**
+   * Shirt patterns drawn in the shader from the body's rest pose (metres, Y up, arms out): the
+   * pattern stays put on the fabric however the golfer moves.
+   */
+  private shirtPattern(m: THREE.MeshStandardMaterial) {
+    const u = this.shirtUniforms;
+    m.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, u);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vBind;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBind = position;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform float uPattern;
+          uniform vec3 uAccent;
+          varying vec3 vBind;
+          float band(float v, float lo, float hi) {
+            float w = fwidth(v);
+            return smoothstep(lo - w, lo + w, v) - smoothstep(hi - w, hi + w, v);
+          }
+          float shirtMask() {
+            vec3 p = vBind;
+            float sleeve = smoothstep(0.19, 0.205, abs(p.x));
+            if (uPattern < 0.5) return 0.0;
+            // pinstripe: thin vertical lines down the body
+            if (uPattern < 1.5) return (1.0 - sleeve) * band(fract(p.x * 26.0 + 0.5), 0.0, 0.2);
+            // hoops: wide horizontal bands
+            if (uPattern < 2.5) return band(fract((p.y - 1.0) * 8.0), 0.5, 1.0);
+            // chest band
+            if (uPattern < 3.5) return (1.0 - sleeve) * band(p.y, 1.31, 1.4);
+            // two-tone: contrast sleeves
+            return sleeve;
+          }`,
+        )
+        .replace('#include <map_fragment>', 'diffuseColor.rgb = mix(diffuseColor.rgb, uAccent, shirtMask());\n#include <map_fragment>');
+    };
+    m.customProgramCacheKey = () => 'golfer-shirt-v1';
+    m.needsUpdate = true;
+  }
+
+  /** Club head look: the upgrade tier's, unless a level-unlocked finish is chosen. */
+  private paintClubHead() {
+    const h = this.finish.head ?? TIERS[this.clubTier].head;
+    this.mats.get('ClubHead')?.forEach((m) => {
+      m.color.setHex(h.color);
+      m.metalness = h.metalness;
+      m.roughness = h.roughness;
+    });
   }
 
   setClub(model: string, tier: number) {
     for (const [n, o] of this.clubs) o.visible = n === model;
-    const t = TIERS[tier];
-    this.mats.get('ClubHead')?.forEach((m) => {
-      m.color.setHex(t.head.color);
-      m.metalness = t.head.metalness;
-      m.roughness = t.head.roughness;
-    });
+    this.clubTier = tier;
+    this.paintClubHead();
     if (this.fallbackClub) this.fallbackClub.visible = true;
   }
 

@@ -8,7 +8,8 @@ import { sfx } from '../audio/sfx';
 import { toYards } from '../core/rng';
 import { persist, playerLevel, resetSave, save, type Appearance, type Difficulty, type TextSize } from '../core/save';
 import { CLUBS, MAX_TIER, SHOT_TYPES, TIERS, upgradeCost } from '../data/clubs';
-import { COURSES, HOLE_SETS, courseById, courseForSet, coursePar, courseYards, type CourseDef, type HoleSet } from '../data/courses';
+import { BALL_COLORS, CLUB_FINISHES, SHIRT_PATTERNS, type Unlock } from '../data/cosmetics';
+import { COURSES, DRIVING_RANGE, HOLE_SETS, courseById, courseForSet, coursePar, courseYards, type CourseDef, type HoleSet } from '../data/courses';
 import { CAREER, careerEvent } from '../data/career';
 import { SWING_STYLES, swingStyleById, type SwingStyle, type SwingStyleId } from '../data/swingStyles';
 import { FlatGround, simulateShot } from '../physics/ballPhysics';
@@ -43,6 +44,7 @@ const DIFF_INFO: Record<Difficulty, { name: string; desc: string; pips: number }
 const svg = (body: string) =>
   `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const ICON = {
+  lock: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
   golfer: svg('<circle cx="12" cy="7.6" r="3.4"/><path d="M8.2 6.3h8.8"/><path d="M4.8 21c.7-4.3 3.6-7 7.2-7s6.5 2.7 7.2 7"/>'),
   bag: svg('<path d="M8 9.5h8l-.9 10.7a1.6 1.6 0 0 1-1.6 1.3h-3a1.6 1.6 0 0 1-1.6-1.3Z"/><path d="M9.6 9.5V4M12 9.5V2.8M14.3 9.5l1.6-5"/><path d="M8.5 14h7"/>'),
   sliders: svg('<path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/>'),
@@ -502,9 +504,11 @@ export class Menus {
 
   showPlay(practice = false) {
     this.hooks.showroom('menu');
+    // the range is only on the practice page
+    if (!practice && this.selCourse === DRIVING_RANGE.id) this.selCourse = save.settings.courseId;
     const el = h('div', { class: 'screen page setup' });
     const head = practice
-      ? this.pageHead('Practice', 'Practice Round', 'No opponent and no score to protect. Play any hole as often as you like: N skips to the next hole, B drops a ball on the green to practise putting.', () => this.showMain())
+      ? this.pageHead('Practice', 'Practice', 'No opponent and no score to protect. Warm up on the driving range, or play any hole as often as you like: N skips to the next hole, B drops a ball on the green to practise putting.', () => this.showMain())
       : this.pageHead('Play', 'Match Setup', 'Pick a course, the holes, a format and difficulty. Good swings, holes won and birdies earn XP. Winning the match earns the most.', () => this.showMain());
     const sets = h('div', { class: 'chips seg wide' });
     const formats = h('div', { class: 'diffs formats' });
@@ -522,7 +526,7 @@ export class Menus {
       const sub = courseForSet(c, this.selHoles).course;
       const fmt = FORMATS.find((f) => f.id === this.selFormat)!;
       summary.innerHTML = practice
-        ? `<span class="kicker">Practice</span><b>${esc(c.name)}</b><span>All 18 holes · ${esc(swingStyleById(this.selStyle).name)}</span>`
+        ? `<span class="kicker">Practice</span><b>${esc(c.name)}</b><span>${c.id === DRIVING_RANGE.id ? 'Targets from 60 to 250 yards' : 'All 18 holes'} · ${esc(swingStyleById(this.selStyle).name)}</span>`
         : `<span class="kicker">Your match</span><b>${esc(c.name)}</b><span>${DIFF_INFO[this.selDiff].name} · ${HOLE_SETS.find((x) => x.id === this.selHoles)!.name} (par ${coursePar(sub)}) · ${fmt.name} · ${esc(swingStyleById(this.selStyle).name)}</span>`;
     };
     for (const hs of HOLE_SETS) {
@@ -543,14 +547,18 @@ export class Menus {
       };
       formats.append(x);
     }
-    for (const c of COURSES) {
+    for (const c of practice ? [DRIVING_RANGE, ...COURSES] : COURSES) {
+      const range = c.id === DRIVING_RANGE.id;
       const card = h('div', { class: 'card nav', tabindex: '0', role: 'button', 'data-id': c.id, 'data-k': `course:${c.id}` });
       if (c.id === this.selCourse) card.dataset.autofocus = '';
       const art = h('div', { class: 'art' });
       art.append(courseArt(c));
-      art.insertAdjacentHTML('beforeend', `<span class="style-tag">${c.foliage ? 'autumn' : c.style}</span><span class="check">${ICON.check}</span>`);
+      art.insertAdjacentHTML('beforeend', `<span class="style-tag">${range ? 'range' : c.foliage ? 'autumn' : c.style}</span><span class="check">${ICON.check}</span>`);
       const body = h('div', { class: 'body' });
-      body.innerHTML = `<h3>${esc(c.name)}</h3><div class="loc">${esc(c.location)}</div><p>${esc(c.blurb)}</p>
+      body.innerHTML = range
+        ? `<h3>${esc(c.name)}</h3><div class="loc">${esc(c.location)}</div><p>${esc(c.blurb)}</p>
+        <div class="stats3"><div><small>Targets</small><b>5</b></div><div><small>Longest</small><b>250</b></div><div><small>Wind mph</small><b>${c.windMin}-${c.windMax}</b></div></div>`
+        : `<h3>${esc(c.name)}</h3><div class="loc">${esc(c.location)}</div><p>${esc(c.blurb)}</p>
         <div class="stats3"><div><small>Par</small><b>${coursePar(c)}</b></div><div><small>Yards</small><b>${courseYards(c).toLocaleString()}</b></div><div><small>Wind mph</small><b>${c.windMin}-${c.windMax}</b></div></div>
         ${save.best[c.id] ? `<div class="best">${ICON.trophy}Best: ${esc(save.best[c.id])}</div>` : ''}`;
       card.append(art, body);
@@ -589,8 +597,9 @@ export class Menus {
     bag.onclick = () => this.showShop(() => this.showPlay());
     const go = h('button', { class: 'btn primary big' });
     go.innerHTML = `<span>${practice ? 'Start Practice' : 'Tee Off'}</span>${ICON.play}`;
+    if (practice) go.dataset.k = 'start-practice';
     go.onclick = () => {
-      save.settings.courseId = this.selCourse;
+      if (this.selCourse !== DRIVING_RANGE.id) save.settings.courseId = this.selCourse;
       if (!practice) {
         save.settings.difficulty = this.selDiff;
         save.settings.format = this.selFormat;
@@ -799,6 +808,60 @@ export class Menus {
     swatchField('Shoes', 'shoes', ['#f4f4f4', '#111111', '#5a3a22', '#1c2b4a', '#b5121b', '#8a8a8a']);
     swatchField('Belt', 'belt', ['#111111', '#f2f2f2', '#5a3a22', '#1c2b4a', '#b5121b']);
     chipField('Sunglasses', ['Off', 'On'], () => (a.sunglasses ? 'On' : 'Off'), (v) => (a.sunglasses = v === 'On'));
+    // level unlocks: everything shows, locked items say the level that unlocks them
+    const lvl = playerLevel(save.xpEarned).level;
+    const lockedTip = (u: Unlock) => `Unlocks at level ${u.level} (you are level ${lvl})`;
+    const unlockChips = (label: string, items: Unlock[], get: () => string, setv: (id: string) => void) => {
+      const f = h('div', { class: 'field' }, h('label', {}, label));
+      const row = h('div', { class: 'chips seg wrap' });
+      const render = () => {
+        clear(row);
+        for (const u of items) {
+          const locked = u.level > lvl;
+          const c = h('div', { class: `chip nav ${get() === u.id ? 'sel' : ''} ${locked ? 'locked' : ''}`, tabindex: '0', role: 'button', 'data-k': `${label}:${u.id}` });
+          c.innerHTML = locked ? `${ICON.lock}<span>${esc(u.name)}</span><small>Lv ${u.level}</small>` : esc(u.name);
+          c.title = locked ? lockedTip(u) : u.name;
+          c.onclick = () => {
+            if (locked) return;
+            setv(u.id);
+            update();
+            keepFocus(render);
+          };
+          row.append(c);
+        }
+      };
+      render();
+      f.append(row);
+      body.append(f);
+    };
+    sec('Level unlocks');
+    unlockChips('Shirt pattern', SHIRT_PATTERNS, () => a.shirtPattern, (v) => (a.shirtPattern = v as Appearance['shirtPattern']));
+    swatchField('Pattern colour', 'shirtAccent', CLOTH);
+    {
+      const f = h('div', { class: 'field' }, h('label', {}, 'Ball colour'));
+      const row = h('div', { class: 'swatches' });
+      const render = () => {
+        clear(row);
+        for (const b of BALL_COLORS) {
+          const locked = b.level > lvl;
+          const sw = h('div', { class: `swatch ball nav ${a.ball === b.id ? 'sel' : ''} ${locked ? 'locked' : ''}`, tabindex: '0', role: 'button', 'data-k': `ball:${b.id}` });
+          sw.style.background = `radial-gradient(circle at 35% 30%, #fff8 0, #fff0 45%), #${b.hex.toString(16).padStart(6, '0')}`;
+          sw.title = locked ? `${b.name} · ${lockedTip(b)}` : b.name;
+          if (locked) sw.innerHTML = `<span class="lv">${b.level}</span>`;
+          sw.onclick = () => {
+            if (locked) return;
+            a.ball = b.id;
+            update();
+            keepFocus(render);
+          };
+          row.append(sw);
+        }
+      };
+      render();
+      f.append(row);
+      body.append(f);
+    }
+    unlockChips('Club finish', CLUB_FINISHES, () => a.clubFinish, (v) => (a.clubFinish = v));
     sec('Physique');
     slider('Build', 0, 1, 0.01, () => a.build, (v) => (a.build = v), (v) => (v < 0.25 ? 'Athletic' : v < 0.6 ? 'Solid' : 'Heavy'));
     slider('Height', 1.6, 2.0, 0.01, () => a.height, (v) => (a.height = v), (v) => `${Math.floor(v / 0.3048)}'${Math.round(((v / 0.3048) % 1) * 12)}" (${v.toFixed(2)} m)`);
@@ -896,6 +959,17 @@ export class Menus {
         r.append(l, chips);
         list.append(r);
       };
+      // one-click presets over the two graphics settings below
+      const preset = () => {
+        const { quality: q, gfxPriority: g } = save.settings;
+        return q === 'low' && g === 'smooth' ? 'perf' : q === 'medium' && g === 'balanced' ? 'bal' : q === 'high' && g === 'quality' ? 'best' : 'custom';
+      };
+      row('Graphics preset', 'Performance runs smoothest on laptops; Best looking is for gaming PCs. Custom: you have set the two graphics options at the bottom yourself.', [['perf', 'Performance'], ['bal', 'Balanced'], ['best', 'Best looking'], ['custom', 'Custom']], preset, (v) => {
+        if (v === 'perf') Object.assign(save.settings, { quality: 'low', gfxPriority: 'smooth' });
+        else if (v === 'bal') Object.assign(save.settings, { quality: 'medium', gfxPriority: 'balanced' });
+        else if (v === 'best') Object.assign(save.settings, { quality: 'high', gfxPriority: 'quality' });
+      });
+      row('Auto graphics', 'If the game keeps running slowly, lower the graphics quality a step at the start of the next hole (never below Low).', [['on', 'On'], ['off', 'Off']], () => (save.settings.autoGfx ? 'on' : 'off'), (v) => (save.settings.autoGfx = v === 'on'));
       row('Swing control', 'Swing Stick: hold, pull the mouse down, push up (tempo + straightness). 3-Click: classic power/accuracy meter.', [['stick', 'Swing Stick'], ['threeClick', '3-Click']], () => save.settings.swingMode, (v) => (save.settings.swingMode = v as 'stick' | 'threeClick'));
       row('Gimmes', 'Concede short putts for both players (4 ft on Easy, 3 ft on Medium, 2½ ft on Hard).', [['on', 'On'], ['off', 'Off']], () => (save.settings.gimmes ? 'on' : 'off'), (v) => (save.settings.gimmes = v === 'on'));
       row('Weather', 'Random: each round brings its own weather (wind, overcast skies or rain that softens the greens). Always fair: sunshine every round.', [['random', 'Random'], ['fair', 'Always fair']], () => save.settings.weather, (v) => (save.settings.weather = v as 'random' | 'fair'));
