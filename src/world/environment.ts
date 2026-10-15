@@ -1,8 +1,8 @@
 // Image-based sky and lighting: an HDRI drives the background, the ambient/specular IBL and the
 // direction of the shadow-casting sun, so lighting matches the photographed sky.
-import { isTouchDevice } from '../core/device';
 import * as THREE from 'three';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
+import { isTouchDevice } from '../core/device';
 
 interface HdriInfo {
   texture: THREE.DataTexture;
@@ -72,7 +72,8 @@ export class SkyEnvironment {
   }
 
   setQuality(q: 'low' | 'medium' | 'high') {
-    const size = q === 'high' ? 4096 : q === 'medium' ? 2048 : 1024;
+    // phones: a 1024 shadow map (a 2048 one with its depth buffer is ~34 MB)
+    const size = isTouchDevice ? 1024 : q === 'high' ? 4096 : q === 'medium' ? 2048 : 1024;
     if (this.sun.shadow.mapSize.x !== size) {
       this.sun.shadow.mapSize.set(size, size);
       this.sun.shadow.map?.dispose();
@@ -101,6 +102,8 @@ export class SkyEnvironment {
         t.mapping = THREE.EquirectangularReflectionMapping;
         const a = analyse(t);
         const envMap = this.pmrem.fromEquirectangular(t).texture;
+        // free the generator's scratch target (as big as the env map itself); it's rebuilt on demand
+        this.pmrem.dispose();
         return { texture: t, envMap, ...a };
       });
       cache.set(name, p);

@@ -2,6 +2,8 @@
 // (MIT, (c) 2024 Daniel Greenheck) scaled to metres, with photographic leaf cards, canopy
 // normals and AO, leaf translucency and instancing-aware wind sway shared with the shadow pass.
 import * as THREE from 'three';
+import { releaseAfterUpload } from '../core/assets';
+import { assetUrl } from '../core/device';
 
 export interface TreePart {
   geometry: THREE.BufferGeometry;
@@ -526,10 +528,11 @@ const texCache = new Map<string, Promise<THREE.Texture>>();
 function tex(name: string, srgb: boolean, repeat: boolean): Promise<THREE.Texture> {
   let p = texCache.get(name);
   if (!p) {
-    p = loader.loadAsync(`assets/trees/${name}`).then((t) => {
+    p = loader.loadAsync(assetUrl(`assets/trees/${name}`)).then((t) => {
       t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       t.wrapS = t.wrapT = repeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
       t.anisotropy = 8;
+      releaseAfterUpload(t);
       return t;
     });
     texCache.set(name, p);

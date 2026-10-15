@@ -647,6 +647,7 @@ canvas#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: bl
 .touch-ui .help { display: none; }
 /* make room: the shot panel sits above the aim/power pad, the meter clears the side buttons */
 .touch-ui .shot-panel { bottom: calc(70px / var(--uiz, 1)); }
+.touch-ui .club-dock { bottom: calc(68px / var(--uiz, 1)); right: calc(172px / var(--uiz, 1)); }
 .touch-ui .meter { right: calc(84px / var(--uiz, 1)); top: 54%; height: 270px; }
 .touch-ui .meter-hint { right: calc(84px / var(--uiz, 1) + 70px); }
 @media (max-height: 520px) { .touch-ui .minimap { display: none; } }

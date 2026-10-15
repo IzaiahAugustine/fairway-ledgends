@@ -1,7 +1,7 @@
 // Asset loading with caching: PBR textures (with measured average colour) and glTF models.
 import * as THREE from 'three';
-import { isTouchDevice } from './device';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { assetUrl, isTouchDevice } from './device';
 
 const texLoader = new THREE.TextureLoader();
 const gltfLoader = new GLTFLoader();
@@ -35,31 +35,21 @@ function averageColor(img: HTMLImageElement | ImageBitmap): THREE.Color {
   return new THREE.Color(r / n, g / n, b / n);
 }
 
-/** Redraws an image no larger than `max` pixels a side (the original can then be freed). */
-function downscale(img: HTMLImageElement | ImageBitmap | HTMLCanvasElement, max: number) {
-  const w = img.width, h = img.height;
-  if (Math.max(w, h) <= max) return img;
-  const k = max / Math.max(w, h);
-  const c = document.createElement('canvas');
-  c.width = Math.round(w * k);
-  c.height = Math.round(h * k);
-  c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
-  if (img instanceof ImageBitmap) img.close();
-  return c;
-}
-
-function halve(img: HTMLImageElement) {
-  return downscale(img, Math.max(512, img.width >> 1));
-}
-
-/** Phones: caps a texture's size to save memory (mobile Safari closes pages that use too much). */
-export function shrinkForPhone(tex: THREE.Texture, max: number) {
-  if (!isTouchDevice || !tex.image) return;
-  const img = downscale(tex.image as HTMLImageElement, max);
-  if (img !== tex.image) {
-    tex.image = img;
-    tex.needsUpdate = true;
-  }
+/**
+ * Phones: once a texture is on the GPU, let go of its source image. Mobile Safari keeps a decoded
+ * copy of every image a page has uploaded to WebGL for as long as the page holds the image, which
+ * on iPhone cost ~160 MB. Nothing re-uploads these textures (they're never disposed); if the GPU
+ * context is ever lost, main reloads the page instead.
+ */
+export function releaseAfterUpload(tex: THREE.Texture) {
+  if (!isTouchDevice) return;
+  tex.onUpdate = () => {
+    tex.onUpdate = null;
+    const im = tex.image as HTMLImageElement | ImageBitmap | null;
+    if (!im) return;
+    tex.image = { width: im.width, height: im.height };
+    if (typeof ImageBitmap !== 'undefined' && im instanceof ImageBitmap) im.close();
+  };
 }
 
 let hiRes = false;
@@ -70,21 +60,20 @@ export function setHiResTextures(on: boolean) {
 export const hiResTextures = () => hiRes;
 
 export function loadTexture(name: string, srgb = true, maxAniso = 16): Promise<TexInfo> {
-  const file = hiRes ? name.replace(/_1k\.jpg$/, '_2k.jpg') : name;
+  const file = hiRes && !isTouchDevice ? name.replace(/_1k\.jpg$/, '_2k.jpg') : name;
   const key = `${file}|${srgb}`;
   let p = texCache.get(key);
   if (!p) {
     // a missing 2K file falls back to the 1K one
     p = texLoader
-      .loadAsync(`assets/textures/${file}`)
-      .catch((e) => (file !== name ? texLoader.loadAsync(`assets/textures/${name}`) : Promise.reject(e)))
+      .loadAsync(assetUrl(`assets/textures/${file}`))
+      .catch((e) => (file !== name ? texLoader.loadAsync(assetUrl(`assets/textures/${name}`)) : Promise.reject(e)))
       .then((tex) => {
-        // phones: normal/roughness/AO maps at half size (little visible difference, a quarter of the memory)
-        if (isTouchDevice && !srgb) tex.image = halve(tex.image as HTMLImageElement);
         tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
         tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
         tex.anisotropy = maxAniso;
         const avg = srgb ? averageColor(tex.image as HTMLImageElement) : new THREE.Color(0.5, 0.5, 0.5);
+        releaseAfterUpload(tex);
         return { tex, avg };
       });
     texCache.set(key, p);
@@ -98,22 +87,18 @@ const gltfCache = new Map<string, Promise<GLTF | null>>();
 export function loadGLTF(path: string): Promise<GLTF | null> {
   let p = gltfCache.get(path);
   if (!p) {
-    p = gltfLoader.loadAsync(path).then(
+    p = gltfLoader.loadAsync(assetUrl(path)).then(
       (g) => {
-        // phones: course landmarks at 512, everything else (the golfer) at 1024
-        if (isTouchDevice) {
-          const max = path.includes('/ai/') ? 512 : 1024;
-          const seen = new Set<THREE.Texture>();
-          g.scene.traverse((o) => {
-            const mats = (o as THREE.Mesh).material;
-            for (const m of Array.isArray(mats) ? mats : mats ? [mats] : [])
-              for (const v of Object.values(m)) {
-                if (!(v instanceof THREE.Texture) || seen.has(v)) continue;
+        const seen = new Set<THREE.Texture>();
+        g.scene.traverse((o) => {
+          const mats = (o as THREE.Mesh).material;
+          for (const m of Array.isArray(mats) ? mats : mats ? [mats] : [])
+            for (const v of Object.values(m))
+              if (v instanceof THREE.Texture && !seen.has(v)) {
                 seen.add(v);
-                shrinkForPhone(v, max);
+                releaseAfterUpload(v);
               }
-          });
-        }
+        });
         return g;
       },
       (e) => {

@@ -90,16 +90,16 @@ export class TouchControls {
       hold('▲<small>Power</small>', 'w'),
     );
 
-    // bottom right: club, shot type and spin
+    // bottom right: club, then spin and shot type
     const row = (...kids: HTMLElement[]) => {
       const d = h('div', { class: 'trow' });
       d.append(...kids);
       return d;
     };
-    const shotRow = row(tap('◀', 'q', 'sm'), h('span', { class: 'tlabel' }, 'Shot'), tap('▶', 'e', 'sm'));
     const spin = tap('Spin', 'c', 'pill');
-    this.shotBtns = [shotRow, spin];
-    const right = col(row(spin, tap('◀', 'ArrowLeft', 'sm'), h('span', { class: 'tlabel' }, 'Club'), tap('▶', 'ArrowRight', 'sm')), shotRow);
+    const shotRow = row(spin, tap('◀', 'q', 'sm'), h('span', { class: 'tlabel' }, 'Shot'), tap('▶', 'e', 'sm'));
+    this.shotBtns = [shotRow];
+    const right = col(row(tap('◀', 'ArrowLeft', 'sm'), h('span', { class: 'tlabel' }, 'Club'), tap('▶', 'ArrowRight', 'sm')), shotRow);
     right.classList.add('tright');
 
     // right edge: pause, scorecard and camera views

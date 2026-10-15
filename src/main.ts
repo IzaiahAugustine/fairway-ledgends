@@ -304,8 +304,10 @@ function resize() {
   // light touch only: strong sharpening brings back the jaggies the anti-aliasing removed
   const sharp = Math.min(0.4, 0.08 + under * 0.4);
   for (const p of [coursePipe, stagePipe]) {
-    p.composer.setPixelRatio(pr);
-    p.composer.setSize(w, h);
+    // phones: only the pipeline on screen keeps full-size render targets (memory)
+    const idle = isTouch && p !== (round ? coursePipe : stagePipe);
+    p.composer.setPixelRatio(idle ? 1 : pr);
+    p.composer.setSize(idle ? 1 : w, idle ? 1 : h);
     p.finish.uniforms.uTexel.value.set(1 / Math.max(1, Math.round(w * pr)), 1 / Math.max(1, Math.round(h * pr)));
     p.finish.uniforms.uSharp.value = sharp;
   }
@@ -411,6 +413,7 @@ async function startMatch(opts: MatchOptions, online?: OnlineMatch) {
     };
   }
   round = r;
+  resize();
   r.onPause = () => setPaused(!paused);
   applyAudio();
   // compile for the composer's HDR target (no tone mapping, linear output): compiling for the
@@ -432,6 +435,7 @@ async function startMatch(opts: MatchOptions, online?: OnlineMatch) {
     }
     r.dispose();
     if (round === r) round = null;
+    resize();
     renderer.toneMappingExposure = STAGE_EXPOSURE;
     stage.applyAppearance(save.appearance);
     paused = false;
@@ -482,6 +486,10 @@ const unlockAudio = () => {
 };
 window.addEventListener('pointerdown', unlockAudio, { once: true, capture: true });
 window.addEventListener('keydown', unlockAudio, { once: true, capture: true });
+
+// Phones drop texture source images once uploaded (see releaseAfterUpload), so a lost GPU context
+// can't be rebuilt in place: start the page over instead.
+if (isTouch) canvas.addEventListener('webglcontextlost', () => location.reload());
 
 // Phones and tablets: on-screen buttons stand in for the keyboard
 const touch = isTouch ? new TouchControls(document.getElementById('app') as HTMLElement, () => round && setPaused(!paused)) : null;
