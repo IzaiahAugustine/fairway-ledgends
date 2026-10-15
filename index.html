@@ -7,18 +7,25 @@
     <script>
       // The game's home is golf.augustinesarcade.com. Anyone opening an older address (GitHub
       // Pages, the Firebase .web.app one) is forwarded there with their progress, which is saved
-      // per site address, and any invite code.
+      // per site address, and any invite code. Some networks (campus DNS filters) can't reach the
+      // new domain yet, so it only forwards once the new address answers; otherwise play stays here.
       (function () {
         var h = location.hostname;
         if (!/github\.io$/.test(h) && !/^fairway-legends-51e70\.(web\.app|firebaseapp\.com)$/.test(h)) return;
-        var to = 'https://golf.augustinesarcade.com/' + location.search;
-        if (/^#transfer=/.test(location.hash)) to += location.hash;
-        else
-          try {
-            var raw = localStorage.getItem('fairwayLegends.save.v1');
-            if (raw) to += '#transfer=' + encodeURIComponent(btoa(unescape(encodeURIComponent(raw))));
-          } catch (e) {}
-        location.replace(to);
+        if (!window.fetch) return;
+        var home = 'https://golf.augustinesarcade.com/';
+        var ok = fetch(home + 'privacy.html', { mode: 'no-cors', cache: 'no-store' });
+        var late = new Promise(function (_, rej) { setTimeout(rej, 4000); });
+        Promise.race([ok, late]).then(function () {
+          var to = home + location.search;
+          if (/^#transfer=/.test(location.hash)) to += location.hash;
+          else
+            try {
+              var raw = localStorage.getItem('fairwayLegends.save.v1');
+              if (raw) to += '#transfer=' + encodeURIComponent(btoa(unescape(encodeURIComponent(raw))));
+            } catch (e) {}
+          location.replace(to);
+        }, function () {});
       })();
     </script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Ccircle cx=%2232%22 cy=%2232%22 r=%2230%22 fill=%22%231f6f43%22/%3E%3Crect x=%2230%22 y=%2212%22 width=%223%22 height=%2236%22 fill=%22%23fff%22/%3E%3Cpath d=%22M33 12 L48 18 L33 24Z%22 fill=%22%23f2c14e%22/%3E%3C/svg%3E" />
