@@ -2,7 +2,7 @@
 // direction of the shadow-casting sun, so lighting matches the photographed sky.
 import * as THREE from 'three';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
-import { isTouchDevice } from '../core/device';
+import { isTouchDevice, portalBuild } from '../core/device';
 
 interface HdriInfo {
   texture: THREE.DataTexture;
@@ -97,7 +97,7 @@ export class SkyEnvironment {
     let p = cache.get(name);
     if (!p) {
       // phones get the 2K sky: the 4K one plus its lighting maps alone is ~170 MB of GPU memory
-      p = new HDRLoader().loadAsync(`assets/hdri/${name}_${isTouchDevice ? '2k' : '4k'}.hdr`).then((tex) => {
+      p = new HDRLoader().loadAsync(`assets/hdri/${name}_${isTouchDevice || portalBuild ? '2k' : '4k'}.hdr`).then((tex) => {
         const t = tex as THREE.DataTexture;
         t.mapping = THREE.EquirectangularReflectionMapping;
         const a = analyse(t);

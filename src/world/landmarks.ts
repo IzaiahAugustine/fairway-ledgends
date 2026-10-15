@@ -22,10 +22,13 @@ export class Landmarks {
   readonly colliders: TreeCollider[] = [];
   private templates = new Map<Kind, THREE.Object3D>();
 
-  async init() {
-    const kinds: Kind[] = ['clubhouse', 'lighthouse', 'saguaro', 'bridge', 'cart', 'halfway', 'teesign'];
+  /** Loads the models this course uses (each course's own landmark only where it appears). */
+  async init(courseId: string) {
+    const kinds: Kind[] = ['clubhouse', 'cart', 'halfway', 'teesign'];
+    const own: Record<string, Kind> = { 'coral-cove': 'lighthouse', 'red-mesa': 'saguaro', 'maple-hollow': 'bridge' };
+    if (own[courseId]) kinds.push(own[courseId]);
     await Promise.all(
-      kinds.map(async (k) => {
+      kinds.filter((k) => !this.templates.has(k)).map(async (k) => {
         const gltf = await loadGLTF(`models/ai/${k}.glb`);
         if (!gltf) return;
         // loadGLTF caches the scene, so normalise a copy (a second round would rescale it again)

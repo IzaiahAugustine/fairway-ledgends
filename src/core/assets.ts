@@ -1,7 +1,7 @@
 // Asset loading with caching: PBR textures (with measured average colour) and glTF models.
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { assetUrl, isTouchDevice } from './device';
+import { assetUrl, isTouchDevice, portalBuild } from './device';
 
 const texLoader = new THREE.TextureLoader();
 const gltfLoader = new GLTFLoader();
@@ -60,7 +60,7 @@ export function setHiResTextures(on: boolean) {
 export const hiResTextures = () => hiRes;
 
 export function loadTexture(name: string, srgb = true, maxAniso = 16): Promise<TexInfo> {
-  const file = hiRes && !isTouchDevice ? name.replace(/_1k\.jpg$/, '_2k.jpg') : name;
+  const file = hiRes && !isTouchDevice && !portalBuild ? name.replace(/_1k\.jpg$/, '_2k.jpg') : name;
   const key = `${file}|${srgb}`;
   let p = texCache.get(key);
   if (!p) {

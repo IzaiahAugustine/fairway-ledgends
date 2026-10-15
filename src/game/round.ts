@@ -233,7 +233,7 @@ export class Round {
     await this.props.init();
     await this.divots.init();
     await this.crowd.init();
-    await this.landmarks.init();
+    await this.landmarks.init(this.cfg.course.id);
     await loadTerrainTextures();
     this.hud.show(true);
     this.hud.setHelp(false, save.settings.swingMode);

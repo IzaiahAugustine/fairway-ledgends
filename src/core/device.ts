@@ -11,3 +11,9 @@ export const isTouchDevice = typeof matchMedia === 'function' && matchMedia('(po
 export function assetUrl(path: string): string {
   return isTouchDevice ? `m/${path}` : path;
 }
+
+/**
+ * A game-portal build (Poki, CrazyGames): they reject games that download more than ~50 MB before
+ * play starts, so these load the 2K skies and never the 2K terrain textures.
+ */
+export const portalBuild = !!import.meta.env.VITE_PORTAL;
