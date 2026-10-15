@@ -1,4 +1,5 @@
 // Local save data: player profile, appearance, XP, club tiers, stats and settings.
+import { isTouchDevice } from './device';
 import { CLUBS } from '../data/clubs';
 import type { SwingStyleId } from '../data/swingStyles';
 import type { HoleSet } from '../data/courses';
@@ -9,9 +10,6 @@ export type Difficulty = 'easy' | 'medium' | 'hard';
 export type SwingMode = 'stick' | 'threeClick';
 export type Quality = 'low' | 'medium' | 'high';
 export type TextSize = 'normal' | 'large' | 'xl';
-
-/** Phones and tablets start on Medium graphics. */
-const PHONE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
 export const TEXT_SCALE: Record<TextSize, number> = { normal: 1, large: 1.25, xl: 1.5 };
 
@@ -99,7 +97,7 @@ function defaults(): SaveData {
     stats: { played: 0, won: 0, lost: 0, halved: 0, holesWon: 0, birdies: 0, eagles: 0, aces: 0 },
     best: {},
     swingStyle: 'classic',
-    settings: { swingMode: 'stick', gimmes: true, sound: true, quality: PHONE ? 'medium' : 'high', difficulty: 'medium', courseId: 'coral-cove', textSize: 'large', format: 'match', holes: 'front', weather: 'random', volMaster: 0.7, volEffects: 0.8, volAmbience: 0.5, volMusic: 0.5, musicInRound: false, wind: 'light', gfxPriority: 'balanced', autoGfx: true },
+    settings: { swingMode: 'stick', gimmes: true, sound: true, quality: isTouchDevice ? 'medium' : 'high', difficulty: 'medium', courseId: 'coral-cove', textSize: 'large', format: 'match', holes: 'front', weather: 'random', volMaster: 0.7, volEffects: 0.8, volAmbience: 0.5, volMusic: 0.5, musicInRound: false, wind: 'light', gfxPriority: 'balanced', autoGfx: true },
     career: { stage: 0 },
   };
 }

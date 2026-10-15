@@ -2,6 +2,7 @@
 // drawn as camera-facing cards. The cards use the scene's own lights, fog and shadows through a
 // MeshStandardMaterial with a rounded "canopy" normal, so they blend with the real trees.
 import * as THREE from 'three';
+import { isTouchDevice } from '../core/device';
 
 export interface ImpostorSource {
   key: string;
@@ -26,7 +27,7 @@ export class ImpostorAtlas {
   private entries = new Map<string, Entry>();
   private rt: THREE.WebGLRenderTarget | null = null;
 
-  constructor(sources: ImpostorSource[], tile = 384) {
+  constructor(sources: ImpostorSource[], tile = isTouchDevice ? 256 : 384) {
     const r = bakeRenderer;
     const cols = Math.max(1, Math.ceil(Math.sqrt(sources.length)));
     const rows = Math.max(1, Math.ceil(sources.length / cols));
@@ -97,12 +98,34 @@ export class ImpostorAtlas {
         baseY: cam.bottom,
       });
     });
+    // Copy the baked atlas into a plain target and free the multisampled one: its MSAA buffer
+    // would otherwise sit in GPU memory for good (~170 MB at full size).
+    r.setScissorTest(false);
+    const out = new THREE.WebGLRenderTarget(rt.width, rt.height, {
+      colorSpace: THREE.SRGBColorSpace,
+      generateMipmaps: true,
+      minFilter: THREE.LinearMipmapLinearFilter,
+      magFilter: THREE.LinearFilter,
+    });
+    const copyMat = new THREE.MeshBasicMaterial({ map: rt.texture, blending: THREE.NoBlending, toneMapped: false, depthTest: false, depthWrite: false });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMat);
+    const copyScene = new THREE.Scene();
+    copyScene.add(quad);
+    const copyCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    r.setRenderTarget(out);
+    r.setViewport(0, 0, rt.width, rt.height);
+    r.clear(true, true, true);
+    r.render(copyScene, copyCam);
+    quad.geometry.dispose();
+    copyMat.dispose();
+    rt.dispose();
+    this.rt = out;
     r.setScissorTest(prevScissor);
     r.setRenderTarget(prevTarget);
     r.setClearColor(prevClear, prevAlpha);
     r.autoClear = prevAuto;
     r.setViewport(0, 0, r.domElement.width / r.getPixelRatio(), r.domElement.height / r.getPixelRatio());
-    this.texture = rt.texture;
+    this.texture = out.texture;
     this.texture.anisotropy = 4;
   }
 

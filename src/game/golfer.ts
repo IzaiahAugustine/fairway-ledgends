@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { clubFinish, shirtPatternCode } from '../data/cosmetics';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { loadGLTF } from '../core/assets';
+import { loadGLTF, shrinkForPhone } from '../core/assets';
 import type { Appearance, FaceStyle } from '../core/save';
 import { TIERS, type SwingAnim } from '../data/clubs';
 
@@ -44,6 +44,7 @@ function faceMap(f: FaceStyle): Promise<THREE.Texture> {
       t.flipY = false; // glTF UV convention, as the map it replaces
       t.colorSpace = THREE.SRGBColorSpace;
       t.anisotropy = 8;
+      shrinkForPhone(t, 1024);
       return t;
     });
     faceMaps.set(f, p);

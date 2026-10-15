@@ -1,10 +1,11 @@
 // On-screen controls for phones and tablets. Each button stands in for a keyboard key: it sends
 // the same key events the round already listens for, so touch and keyboard play identically.
 // The swing itself needs no button: dragging a finger on the course works like the mouse.
+import { isTouchDevice } from '../core/device';
 import { h } from './dom';
 
 /** A phone or tablet: the main pointer is a finger. */
-export const isTouch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+export const isTouch = isTouchDevice;
 
 /** Key events sent by these buttons carry this flag, so menu keyboard navigation ignores them. */
 export const TOUCH_KEY = '__touchKey';
