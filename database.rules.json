@@ -92,6 +92,11 @@
                 ".validate": false
               }
             },
+            "mode": {
+              "host": { ".validate": "newData.val() === 'relay'" },
+              "guest": { ".validate": "newData.val() === 'relay'" },
+              "$other": { ".validate": false }
+            },
             "relay": {
               "toGuest": {
                 "$id": {
