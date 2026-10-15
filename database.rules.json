@@ -37,6 +37,81 @@
         },
         "$other": { ".validate": "false" }
       }
-    }
+    },
+    "kc": {
+        "rooms": {
+          "$code": {
+            ".read": "$code.matches(/^[0-9]{5}$/)",
+            ".write": "$code.matches(/^[0-9]{5}$/)",
+            ".validate": "newData.hasChildren(['status', 'host'])",
+            "created": {
+              ".validate": "newData.isNumber() && newData.val() <= now"
+            },
+            "status": {
+              ".validate": "newData.val() === 'waiting' || newData.val() === 'playing'"
+            },
+            "host": {
+              ".validate": "newData.hasChildren(['name'])",
+              "name": {
+                ".validate": "newData.isString() && newData.val().length <= 24"
+              },
+              "$other": {
+                ".validate": false
+              }
+            },
+            "guest": {
+              ".validate": "newData.hasChildren(['name'])",
+              "name": {
+                ".validate": "newData.isString() && newData.val().length <= 24"
+              },
+              "$other": {
+                ".validate": false
+              }
+            },
+            "left": {
+              ".validate": "newData.val() === 'host' || newData.val() === 'guest'"
+            },
+            "signal": {
+              "offer": {
+                ".validate": "newData.isString() && newData.val().length < 20000"
+              },
+              "answer": {
+                ".validate": "newData.isString() && newData.val().length < 20000"
+              },
+              "hostIce": {
+                "$id": {
+                  ".validate": "newData.isString() && newData.val().length < 2000"
+                }
+              },
+              "guestIce": {
+                "$id": {
+                  ".validate": "newData.isString() && newData.val().length < 2000"
+                }
+              },
+              "$other": {
+                ".validate": false
+              }
+            },
+            "relay": {
+              "toGuest": {
+                "$id": {
+                  ".validate": "newData.hasChildren(['m']) && newData.child('m').isString() && newData.child('m').val().length < 4000"
+                }
+              },
+              "toHost": {
+                "$id": {
+                  ".validate": "newData.hasChildren(['m']) && newData.child('m').isString() && newData.child('m').val().length < 4000"
+                }
+              },
+              "$other": {
+                ".validate": false
+              }
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+      }
   }
 }
