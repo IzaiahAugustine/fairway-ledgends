@@ -189,7 +189,7 @@ const menus = new Menus(uiRoot, {
   },
   swingDemo: (st) => stage.setSwingDemo(st),
   settingsChanged: () => {
-    sfx.setEnabled(save.settings.sound);
+    applySound();
     applyAudio();
     applyQuality();
     applyTextSize();
@@ -483,6 +483,12 @@ function frame() {
   }
 }
 
+/** Sound on/off: the Settings toggle, overridden by a portal's own mute. */
+function applySound() {
+  sfx.setEnabled(save.settings.sound && !portal.muted);
+}
+portal.onMuteChange = applySound;
+
 function applyAudio() {
   const st = save.settings;
   sfx.setVolumes({ master: st.volMaster, effects: st.volEffects, ambience: st.volAmbience, music: st.volMusic });
@@ -553,7 +559,7 @@ async function boot() {
   }
   applyQuality();
   applyTextSize();
-  sfx.setEnabled(save.settings.sound);
+  applySound();
   menus.showLoading('Fairway Legends', 'Loading the clubhouse…');
   renderer.toneMappingExposure = STAGE_EXPOSURE;
   try {

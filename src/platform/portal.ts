@@ -20,7 +20,15 @@ interface PokiSDKApi {
 interface CrazySDKApi {
   init(): Promise<void>;
   environment: 'local' | 'crazygames' | 'disabled';
-  game: { gameplayStart(): void; gameplayStop(): void; loadingStart(): void; loadingStop(): void; happytime(): void };
+  game: {
+    gameplayStart(): void;
+    gameplayStop(): void;
+    loadingStart(): void;
+    loadingStop(): void;
+    happytime(): void;
+    settings?: { muteAudio?: boolean };
+    addSettingsChangeListener?(cb: (s: { muteAudio?: boolean }) => void): void;
+  };
   ad: { requestAd(kind: 'midgame' | 'rewarded', cb: { adStarted?: () => void; adFinished?: () => void; adError?: (e: unknown) => void }): void };
 }
 declare global {
@@ -63,6 +71,9 @@ class Portal {
   /** Pause the game and mute audio while an ad plays. */
   onAdStart: () => void = () => {};
   onAdEnd: () => void = () => {};
+  /** The portal's own mute (CrazyGames' site-wide sound toggle); it overrides the game's setting. */
+  muted = false;
+  onMuteChange: () => void = () => {};
 
   /** True when ads can be requested (on a portal and its SDK came up). */
   get active() {
@@ -76,8 +87,14 @@ class Portal {
       if (this.id === 'poki') await window.PokiSDK!.init();
       else {
         await window.CrazyGames!.SDK.init();
-        if (window.CrazyGames!.SDK.environment === 'disabled') return;
-        window.CrazyGames!.SDK.game.loadingStart();
+        const sdk = window.CrazyGames!.SDK;
+        if (sdk.environment === 'disabled') return;
+        sdk.game.loadingStart();
+        this.muted = !!sdk.game.settings?.muteAudio;
+        sdk.game.addSettingsChangeListener?.((s) => {
+          this.muted = !!s.muteAudio;
+          this.onMuteChange();
+        });
       }
       this.ready = true;
     } catch (e) {
