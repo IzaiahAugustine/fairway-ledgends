@@ -368,6 +368,15 @@
   // fade sections in as they scroll into view
   const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { rootMargin: '0px 0px -8% 0px' });
   document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+  // Some networks (campus DNS filters) can't reach golf.augustinesarcade.com yet: if it doesn't
+  // answer, point the Play links at the game's Firebase address instead.
+  const GOLF = 'https://golf.augustinesarcade.com';
+  const FALLBACK = 'https://fairway-legends-51e70.web.app';
+  const useFallback = () => document.querySelectorAll(`a[href^="${GOLF}"]`).forEach((a) => { a.href = FALLBACK + a.href.slice(GOLF.length); });
+  Promise.race([
+    fetch(GOLF + '/privacy.html', { mode: 'no-cors', cache: 'no-store' }),
+    new Promise((_, rej) => setTimeout(rej, 4000)),
+  ]).catch(useFallback);
 </script>
 </body>
 </html>
