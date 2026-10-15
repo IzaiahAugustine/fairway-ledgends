@@ -2,6 +2,7 @@
 // around the camera (no per-blade CPU data). Blade placement, height and colour come from the
 // hole's coverage maps and turf textures so the blades sit on, and match, the ground beneath.
 import * as THREE from 'three';
+import { isTouchDevice } from '../core/device';
 import type { CourseDef } from '../data/courses';
 import type { HoleField } from './holeGen';
 import { COVER_GLSL, terrainTime, type TerrainMaps, type TerrainTextures } from './terrain';
@@ -41,6 +42,14 @@ const LAYERS: Record<Quality, LayerDef[]> = {
   ],
 };
 
+/** Phones: about a third of Medium's blades (that set is ~350k a frame), with shorter fades. */
+const PHONE_LAYERS: LayerDef[] = [
+  { name: 'near', spacing: 0.085, half: 10, ahead: 5.5, segs: 2, fadeIn: [-1, 0], fadeOut: [7.5, 10], tall: false },
+  { name: 'mid', spacing: 0.26, half: 24, ahead: 14, segs: 2, fadeIn: [7.5, 10], fadeOut: [20, 26], tall: false },
+  { name: 'tall', spacing: 0.27, half: 28, ahead: 16, segs: 3, fadeIn: [-1, 0], fadeOut: [26, 34], tall: true },
+  { name: 'tallFar', spacing: 0.6, half: 48, ahead: 36, segs: 2, fadeIn: [26, 34], fadeOut: [58, 78], tall: true },
+];
+
 function bladeGeometry(segs: number, count: number): THREE.InstancedBufferGeometry {
   const g = new THREE.InstancedBufferGeometry();
   const pos: number[] = [];
@@ -77,7 +86,7 @@ export class GrassField {
   constructor(field: HoleField, course: CourseDef, t: TerrainTextures, maps: TerrainMaps, quality: Quality) {
     this.hTex = heightTexture(field);
     this.disposables.push(this.hTex);
-    for (const def of LAYERS[quality]) {
+    for (const def of isTouchDevice ? PHONE_LAYERS : LAYERS[quality]) {
       const grid = Math.round((def.half * 2) / def.spacing);
       const geo = bladeGeometry(def.segs, grid * grid);
       const mat = this.makeMaterial(field, course, t, maps, def, grid);

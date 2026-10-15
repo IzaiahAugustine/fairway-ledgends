@@ -85,6 +85,10 @@ function makePipeline(scene: THREE.Scene, env: SkyEnvironment): Pipeline {
   depth.type = THREE.UnsignedIntType;
   const rt = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, samples: MSAA, depthTexture: depth });
   const c = new EffectComposer(renderer, rt);
+  // only the scene pass needs MSAA and depth; the second buffer just takes full-screen passes
+  c.renderTarget2.samples = 0;
+  c.renderTarget2.depthBuffer = false;
+  c.renderTarget2.depthTexture = null;
   c.addPass(new RenderPass(scene, camera));
   const d = c.renderTarget1.depthTexture!;
   const gtao = new HalfResGTAO(scene, camera, 2, 2);
@@ -206,6 +210,8 @@ const menus = new Menus(uiRoot, {
  */
 const PIXEL_BUDGET = { high: 2_100_000, medium: 1_400_000, low: 800_000 };
 const PR_CAP = { high: 1.5, medium: 1.15, low: 0.85 };
+/** Phones: small screens held close need more of their native density to look sharp. */
+const PR_CAP_TOUCH = { high: 1.8, medium: 1.5, low: 1.2 };
 /**
  * Ladder rung -> resolution scale. Rung 1 only drops ambient occlusion; from rung 6 MSAA is halved,
  * and the last rungs keep going down for laptop GPUs (an M1 Air still runs below 30 fps at 0.75).
@@ -218,19 +224,19 @@ function targetPixelRatio(): number {
   const q = save.settings.quality;
   const css = window.innerWidth * window.innerHeight;
   const budget = Math.sqrt(PIXEL_BUDGET[q] / Math.max(1, css));
-  return Math.min(window.devicePixelRatio, PR_CAP[q], Math.max(0.5, budget));
+  return Math.min(window.devicePixelRatio, (isTouch ? PR_CAP_TOUCH : PR_CAP)[q], Math.max(0.5, budget));
 }
 
 function applyRenderLevel() {
   const q = save.settings.quality;
   const samples = dynRes.level >= MSAA_LOW_RUNG ? 2 : MSAA;
   for (const p of [coursePipe, stagePipe]) {
-    p.gtao.enabled = q !== 'low' && dynRes.level === 0;
-    for (const rt of [p.composer.renderTarget1, p.composer.renderTarget2]) {
-      if (rt.samples !== samples) {
-        rt.samples = samples;
-        rt.dispose();
-      }
+    // phones skip contact shadows: costly, and hard to see on a small screen
+    p.gtao.enabled = q !== 'low' && !isTouch && dynRes.level === 0;
+    const rt = p.composer.renderTarget1;
+    if (rt.samples !== samples) {
+      rt.samples = samples;
+      rt.dispose();
     }
   }
   const pr = Math.round(targetPixelRatio() * DYN_SCALES[dynRes.level] * 40) / 40;
@@ -288,7 +294,7 @@ function applyQuality() {
   renderer.setPixelRatio(targetPixelRatio());
   courseEnv.setQuality(q);
   stage.env.setQuality(q);
-  for (const p of [coursePipe, stagePipe]) p.gtao.enabled = q !== 'low';
+  for (const p of [coursePipe, stagePipe]) p.gtao.enabled = q !== 'low' && !isTouch;
   renderer.shadowMap.needsUpdate = true;
   resize();
 }

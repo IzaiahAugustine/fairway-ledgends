@@ -2,8 +2,8 @@
 
 Phones load from m/ instead (see src/core/device.ts). Mobile Safari keeps an extra full-size copy
 of every image a page uploads to WebGL, so on iPhone the full-size set ran past the memory limit
-and Safari closed the page. Here every image is capped at 512 px, except the golfer's skin and
-face maps at 1024 (the face is the one thing seen up close).
+and Safari closed the page. Here everything is capped at 512 px except the colour maps of what's
+seen up close (the ground, the golfer and their face), which keep 1024.
 
 Needs Pillow:
   python3 blender/mobile_assets.py
@@ -20,7 +20,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PUBLIC = os.path.join(HERE, '..', 'public')
 OUT = os.path.join(PUBLIC, 'm')
 CAP = 512
-FACE_CAP = 1024
+# colour maps are what reads as sharp or blurry; normal/roughness/AO maps can be smaller
+COLOR_CAP = 1024
 
 IMAGE_DIRS = ['assets/textures', 'assets/trees', 'assets/golfer/faces']
 MODEL_DIRS = ['models', 'models/ai']
@@ -58,7 +59,7 @@ def image_file(src, dst, cap):
         small.save(dst, **({'optimize': True} if dst.endswith('.png') else {'quality': 88, 'optimize': True}))
 
 
-def glb_file(src, dst):
+def glb_file(src, dst, color_cap):
     data = open(src, 'rb').read()
     jlen = struct.unpack_from('<I', data, 12)[0]
     gltf = json.loads(data[20:20 + jlen])
@@ -72,7 +73,9 @@ def glb_file(src, dst):
         bv = gltf['bufferViews'][im['bufferView']]
         raw = binb[bv.get('byteOffset', 0):bv.get('byteOffset', 0) + bv['byteLength']]
         img = Image.open(io.BytesIO(raw))
-        small = _shrink(img, FACE_CAP if im.get('name', '').startswith('Skin') else CAP)
+        name = im.get('name', '')
+        color = name.startswith('Skin') or name.endswith('_albedo') or name.startswith('Color_')
+        small = _shrink(img, color_cap if color else CAP)
         if small is not None:
             swap[im['bufferView']] = _encode(small, im.get('mimeType', 'image/jpeg'))
 
@@ -100,14 +103,16 @@ def main():
     if os.path.isdir(OUT):
         shutil.rmtree(OUT)
     for d in IMAGE_DIRS:
-        cap = FACE_CAP if d.endswith('faces') else CAP
         for f in sorted(os.listdir(os.path.join(PUBLIC, d))):
             if f.lower().endswith(('.jpg', '.jpeg', '.png')) and '_2k.' not in f:
-                image_file(os.path.join(PUBLIC, d, f), os.path.join(OUT, d, f), cap)
+                # the ground and the golfer's face are seen up close; trees only from a distance
+                color = d.endswith('faces') or '_diff' in f
+                image_file(os.path.join(PUBLIC, d, f), os.path.join(OUT, d, f), COLOR_CAP if color else CAP)
     for d in MODEL_DIRS:
         for f in sorted(os.listdir(os.path.join(PUBLIC, d))):
             if f.endswith('.glb'):
-                n = glb_file(os.path.join(PUBLIC, d, f), os.path.join(OUT, d, f))
+                # the golfer is seen up close; landmarks and props from a distance
+                n = glb_file(os.path.join(PUBLIC, d, f), os.path.join(OUT, d, f), COLOR_CAP if f == 'golfer.glb' else CAP)
                 print(f'{d}/{f}: {n} textures shrunk')
     size = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(OUT) for f in fs)
     print(f'public/m: {size / 1e6:.1f} MB')
