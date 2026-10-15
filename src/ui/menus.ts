@@ -22,6 +22,7 @@ import { Rng } from '../core/rng';
 import { portal } from '../platform/portal';
 import { OnlineMatch, onlineAvailable, type OnlinePlayer, type OnlineSettings } from '../net/online';
 import { clear, esc, h } from './dom';
+import { TOUCH_KEY, isTouch } from './touch';
 
 export interface MenuHooks {
   startMatch(opts: MatchOptions): void;
@@ -343,6 +344,7 @@ export class Menus {
   // ---------------------------------------------------------------- keyboard navigation
 
   private onKey(e: KeyboardEvent) {
+    if ((e as unknown as Record<string, boolean>)[TOUCH_KEY]) return;
     if (e.key in DIRS || e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') this.kbd = true;
     if (!this.screen || e.defaultPrevented) return;
     const t = e.target as HTMLElement;
@@ -1177,6 +1179,19 @@ export class Menus {
       [k('Tab'), 'Scorecard.'],
       [k('Esc'), 'Pause menu.'],
     ];
+    const touchRows: [string, string][] = [
+      [k('Drag'), '<b>Swing:</b> put a finger on the course, pull <b>down</b> to the blue power line, then flick <b>up</b> past where you started. A smooth, straight flick = a pure strike; drifting sideways pushes or pulls it. Lift your finger during the backswing to cancel. (3-Click mode: tap three times.)'],
+      [k('◀ Aim ▶'), 'Hold to aim left / right.'],
+      [k('▼', '▲'), 'Hold to set how far you want to hit it: the landing ring and carry/total numbers update live.'],
+      [k('Club'), 'Pick a club from your bag.'],
+      [k('Shot'), 'Shot type: Normal, Power, Draw, Fade, Punch, Pitch, Flop, Chip, Bump &amp; Run (depends on club).'],
+      [k('Spin'), 'Normal, Backspin (higher, stops fast) or Topspin (lower, runs out).'],
+      [k('Target'), 'Look at the landing area.'],
+      [k('Green'), 'Green read: elevated view with the slope grid.'],
+      [k('Card'), 'Scorecard.'],
+      [k('Skip'), "Skip the flyover or the opponent's shot."],
+    ];
+    if (isTouch) rows.splice(0, rows.length, ...touchRows);
     controls.innerHTML = `<div class="card-title">Controls</div><div class="controls-table">${rows.map(([keys, d]) => `<span>${keys}</span><span>${d}</span>`).join('')}</div>`;
     const rules = h('div', { class: 'm-card' });
     rules.innerHTML = `<div class="card-title">Formats</div><ul class="rules">

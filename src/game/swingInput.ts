@@ -1,4 +1,4 @@
-// Mouse swing controls.
+// Mouse (or finger) swing controls.
 //  - Swing Stick (default, like 2K): hold the left button, pull the mouse DOWN for the
 //    backswing (how far = power), then push it UP through the start point. Tempo (speed of
 //    the push) and straightness (left/right drift) decide the strike.
@@ -118,7 +118,8 @@ export class SwingInput {
       this.phase = 'back';
       this.x0 = this.lastX = e.clientX;
       this.y0 = e.clientY;
-      this.range = Math.max(150, window.innerHeight * 0.26);
+      // a finger on a phone has less room to travel than a mouse on a monitor
+      this.range = e.pointerType === 'touch' ? Math.max(90, window.innerHeight * 0.3) : Math.max(150, window.innerHeight * 0.26);
       this.pull = 0;
       this.maxPull = 0;
       this.el.setPointerCapture?.(e.pointerId);

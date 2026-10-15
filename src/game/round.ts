@@ -1554,6 +1554,17 @@ export class Round {
     c.golfer.startDownswing(putting ? 0.35 : 0.24, () => this.executeShot(c, s, swing));
   }
 
+  /** Which on-screen touch buttons apply right now. */
+  touchState(): { aim: boolean; putting: boolean; skip: boolean; inRound: boolean } {
+    const aim = !this.paused && this.state === 'aim' && this.swing.enabled && !this.swing.active;
+    return {
+      aim,
+      putting: this.club?.kind === 'putter',
+      skip: !this.paused && (this.state === 'intro' || this.aiTurnActive()),
+      inRound: this.state !== 'loading' && this.state !== 'over',
+    };
+  }
+
   /** The opponent is lining up, swinging, or their ball is in the air. */
   private aiTurnActive(): boolean {
     if (this.paused || !this.ai) return false;

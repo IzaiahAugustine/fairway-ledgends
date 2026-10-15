@@ -20,6 +20,8 @@ import { MenuStage, type StageMode } from './game/menuStage';
 import { Round } from './game/round';
 import { Hud } from './ui/hud';
 import { Menus } from './ui/menus';
+import { TouchControls, isTouch } from './ui/touch';
+import { uiScale } from './ui/dom';
 import './ui/style.css';
 import { AtmospherePass } from './world/atmosphere';
 import { SkyEnvironment } from './world/environment';
@@ -458,8 +460,10 @@ function frame() {
   const dt = Math.min(0.05, raw) * debug.timeScale;
   if (round) {
     round.update(paused ? 0 : dt);
+    touch?.update(!paused && !menus.visible ? round.touchState() : null);
     renderPipeline(coursePipe, dt);
   } else {
+    touch?.update(null);
     stage.update(dt, camera, stageMode, dragging);
     renderPipeline(stagePipe, dt);
   }
@@ -479,8 +483,39 @@ const unlockAudio = () => {
 window.addEventListener('pointerdown', unlockAudio, { once: true, capture: true });
 window.addEventListener('keydown', unlockAudio, { once: true, capture: true });
 
+// Phones and tablets: on-screen buttons stand in for the keyboard
+const touch = isTouch ? new TouchControls(document.getElementById('app') as HTMLElement, () => round && setPaused(!paused)) : null;
+if (isTouch) {
+  document.documentElement.classList.add('touch-ui');
+  // a phone's browser bars eat a lot of a landscape screen: go fullscreen on the first tap where allowed
+  const full = () => {
+    const el = document.documentElement;
+    if (document.fullscreenElement || !el.requestFullscreen) return;
+    el.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
+      .catch(() => {});
+  };
+  window.addEventListener('pointerup', full, { once: true, capture: true });
+}
+
+/**
+ * The HUD is laid out for a 1280×720-ish screen: on smaller ones it's shrunk as a whole (--uiz).
+ * The menus already flow with the screen size, so for them only the text scale shrinks (--fs-menu).
+ */
+function applyUiScale() {
+  const z = Math.max(0.42, Math.min(1, window.innerHeight / 700, window.innerWidth / 1150));
+  uiScale.value = z;
+  const root = document.documentElement.style;
+  const fs = TEXT_SCALE[save.settings.textSize] ?? 1.25;
+  root.setProperty('--uiz', z.toFixed(3));
+  root.setProperty('--fs', String(fs));
+  root.setProperty('--fs-menu', (fs * Math.max(0.6, z)).toFixed(3));
+}
+applyUiScale();
+window.addEventListener('resize', applyUiScale);
+
 function applyTextSize() {
-  document.documentElement.style.setProperty('--fs', String(TEXT_SCALE[save.settings.textSize] ?? 1.25));
+  applyUiScale();
 }
 
 async function boot() {

@@ -6,7 +6,8 @@ import { TIERS } from '../data/clubs';
 import type { MeterState } from '../game/swingInput';
 import { scoreName, type HoleRecord } from '../game/match';
 import { HoleField, Surf } from '../world/holeGen';
-import { esc, h } from './dom';
+import { esc, h, uiScale } from './dom';
+import { isTouch } from './touch';
 
 export interface ShotInfo {
   club: string;
@@ -282,9 +283,10 @@ export class Hud {
     drift.style.transform = `translateX(${m.drift * 60 - 2}px)`;
     if (m.mode === 'stick') {
       this.meterHint.innerHTML =
-        m.phase === 'idle' ? 'Hold <b>left mouse</b> and pull <b>down</b> to the blue line…' : m.phase === 'back' ? '…then push <b>up</b> smoothly and straight' : '';
+        m.phase === 'idle' ? `${isTouch ? '<b>Touch</b> the course' : 'Hold <b>left mouse</b>'} and pull <b>down</b> to the blue line…` : m.phase === 'back' ? '…then push <b>up</b> smoothly and straight' : '';
     } else {
-      this.meterHint.innerHTML = m.phase === 'idle' ? '<b>Click</b> to start the swing' : m.phase === 'power' ? '<b>Click</b> at the blue line to set power' : m.phase === 'return' ? '<b>Click</b> in the green zone' : '';
+      const click = isTouch ? 'Tap' : 'Click';
+      this.meterHint.innerHTML = m.phase === 'idle' ? `<b>${click}</b> to start the swing` : m.phase === 'power' ? `<b>${click}</b> at the blue line to set power` : m.phase === 'return' ? `<b>${click}</b> in the green zone` : '';
     }
   }
 
@@ -367,7 +369,8 @@ export class Hud {
       el.textContent = text;
       st.text = text;
     }
-    const W = window.innerWidth, H = window.innerHeight; // the HUD fills the window (reading its size would force a layout)
+    // the HUD fills the window at uiScale (reading its size would force a layout)
+    const W = window.innerWidth / uiScale.value, H = window.innerHeight / uiScale.value;
     const tx = Math.round((v.x * 0.5 + 0.5) * W), ty = Math.round((-v.y * 0.5 + 0.5) * H);
     if (tx !== st.tx || ty !== st.ty) {
       el.style.transform = `translate(${tx}px, ${ty}px) translate(-50%, -130%)`;

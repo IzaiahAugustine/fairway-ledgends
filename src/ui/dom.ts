@@ -1,4 +1,8 @@
 // Tiny DOM helpers.
+
+/** How much the HUD is shrunk to fit a small screen (1 = laid out at full size). */
+export const uiScale = { value: 1 };
+
 export function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...children: (Node | string | null | undefined)[]): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
