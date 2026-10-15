@@ -27,7 +27,7 @@ export class ImpostorAtlas {
   private entries = new Map<string, Entry>();
   private rt: THREE.WebGLRenderTarget | null = null;
 
-  constructor(sources: ImpostorSource[], tile = isTouchDevice ? 192 : 384) {
+  constructor(sources: ImpostorSource[], tile = isTouchDevice ? 256 : 384) {
     const r = bakeRenderer;
     const cols = Math.max(1, Math.ceil(Math.sqrt(sources.length)));
     const rows = Math.max(1, Math.ceil(sources.length / cols));

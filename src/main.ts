@@ -211,13 +211,15 @@ const menus = new Menus(uiRoot, {
 const PIXEL_BUDGET = { high: 2_100_000, medium: 1_400_000, low: 800_000 };
 const PR_CAP = { high: 1.5, medium: 1.15, low: 0.85 };
 /** Phones: small screens held close need more of their native density to look sharp. */
-const PR_CAP_TOUCH = { high: 1.8, medium: 1.5, low: 1.2 };
+const PR_CAP_TOUCH = { high: 2.4, medium: 2, low: 1.6 };
 /**
  * Ladder rung -> resolution scale. Rung 1 only drops ambient occlusion; from rung 6 MSAA is halved,
  * and the last rungs keep going down for laptop GPUs (an M1 Air still runs below 30 fps at 0.75).
  */
 const DYN_SCALES = [1, 1, 0.93, 0.86, 0.8, 0.75, 0.75, 0.68, 0.6];
 const MSAA_LOW_RUNG = 6;
+/** Phones stop at 0.8: lower than that, a phone held close looks smeared. */
+const DYN_MAX = isTouch ? 4 : DYN_SCALES.length - 1;
 const dynRes = { level: 0, avgMs: 16.7, cooldown: 0 };
 
 function targetPixelRatio(): number {
@@ -253,7 +255,7 @@ function updateDynamicResolution(frameMs: number) {
   // frame-time window to hold: Smooth ~50-60 fps, Balanced ~38-48 fps, Best looking ~28-33 fps
   const [slow, fast] = { smooth: [20, 17.2], balanced: [26, 21], quality: [36, 30] }[save.settings.gfxPriority] ?? [26, 21];
   let l = dynRes.level;
-  if (dynRes.avgMs > slow) l = Math.min(DYN_SCALES.length - 1, l + 1);
+  if (dynRes.avgMs > slow) l = Math.min(DYN_MAX, l + 1);
   else if (dynRes.avgMs < fast) l = Math.max(0, l - 1);
   autoLowerQuality(frameMs, slow);
   if (l === dynRes.level) return;
@@ -271,11 +273,13 @@ function updateDynamicResolution(frameMs: number) {
 let slowFor = 0;
 function autoLowerQuality(frameMs: number, slow: number) {
   const st = save.settings;
-  if (!round || paused || !st.autoGfx || st.quality === 'low' || st.gfxPriority === 'quality') {
+  // phones stop at Medium: their Medium is already pared down, and Low is mostly just blurrier
+  const floor = isTouch ? 'medium' : 'low';
+  if (!round || paused || !st.autoGfx || st.quality === floor || st.quality === 'low' || st.gfxPriority === 'quality') {
     slowFor = 0;
     return;
   }
-  const atBottom = dynRes.level === DYN_SCALES.length - 1;
+  const atBottom = dynRes.level === DYN_MAX;
   slowFor = atBottom && dynRes.avgMs > slow ? slowFor + frameMs / 1000 : Math.max(0, slowFor - frameMs / 2000);
   if (slowFor < 8) return;
   slowFor = 0;
@@ -535,6 +539,18 @@ function applyTextSize() {
 async function boot() {
   // game portal SDK first (no-op off-portal); never hold the game up for it
   await Promise.race([portal.init(), new Promise((r) => setTimeout(r, 6000))]);
+  // phones that auto-dropped to Low before the phone build got lighter: back to Medium, once
+  if (isTouch && save.settings.quality === 'low') {
+    try {
+      if (!localStorage.getItem('fairwayLegends.phoneGfx')) {
+        save.settings.quality = 'medium';
+        persist();
+      }
+      localStorage.setItem('fairwayLegends.phoneGfx', '1');
+    } catch {
+      // storage blocked: leave the setting alone
+    }
+  }
   applyQuality();
   applyTextSize();
   sfx.setEnabled(save.settings.sound);

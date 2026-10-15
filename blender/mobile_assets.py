@@ -3,7 +3,7 @@
 Phones load from m/ instead (see src/core/device.ts). Mobile Safari keeps an extra full-size copy
 of every image a page uploads to WebGL, so on iPhone the full-size set ran past the memory limit
 and Safari closed the page. Here everything is capped at 512 px except the colour maps of what's
-seen up close (the ground, the golfer and their face), which keep 1024.
+seen up close (the ground, the golfer and their face) and tree leaves, which keep 1024.
 
 Needs Pillow:
   python3 blender/mobile_assets.py
@@ -105,8 +105,8 @@ def main():
     for d in IMAGE_DIRS:
         for f in sorted(os.listdir(os.path.join(PUBLIC, d))):
             if f.lower().endswith(('.jpg', '.jpeg', '.png')) and '_2k.' not in f:
-                # the ground and the golfer's face are seen up close; trees only from a distance
-                color = d.endswith('faces') or '_diff' in f
+                # the ground, the golfer's face and tree leaves (the bulk of every tree) stay sharper
+                color = d.endswith('faces') or '_diff' in f or '_leaf' in f
                 image_file(os.path.join(PUBLIC, d, f), os.path.join(OUT, d, f), COLOR_CAP if color else CAP)
     for d in MODEL_DIRS:
         for f in sorted(os.listdir(os.path.join(PUBLIC, d))):
