@@ -303,6 +303,7 @@ function flightChart(style: SwingStyleId): string {
 
 export class Menus {
   private root: HTMLElement;
+  private loadBar: { bar: HTMLElement; target: number; shown: number; timer: number } | null = null;
   private screen: HTMLElement | null = null;
   private selCourse = save.settings.courseId;
   private selDiff: Difficulty = save.settings.difficulty;
@@ -1219,6 +1220,36 @@ export class Menus {
     const el = h('div', { class: 'screen loading' });
     el.innerHTML = `${crest()}<div class="t">${esc(title)}</div><div class="s">${esc(sub)}</div><div class="lbar"><i></i></div>`;
     this.set(el);
+  }
+
+  /**
+   * Fills the loading screen's bar (0..1); before the first call it just sweeps. Progress only
+   * arrives as whole files finish, so between updates the bar creeps on towards the next one
+   * (never past halfway to full) rather than sitting still through a big download.
+   */
+  setLoadProgress(f: number) {
+    const bar = this.root.querySelector<HTMLElement>('.loading .lbar');
+    if (!bar) return;
+    const i = bar.firstElementChild as HTMLElement;
+    const st = (this.loadBar?.bar === bar ? this.loadBar : null) ?? { bar, target: 0, shown: 0, timer: 0 };
+    // the bar never runs backwards (files found later add to the total)
+    st.target = Math.max(st.target, Math.min(1, f));
+    st.shown = Math.max(st.shown, st.target);
+    const draw = () => (i.style.width = `${(st.shown * 100).toFixed(1)}%`);
+    if (!st.timer) {
+      bar.classList.add('det');
+      this.loadBar = st;
+      st.timer = window.setInterval(() => {
+        if (!bar.isConnected) {
+          clearInterval(st.timer);
+          return;
+        }
+        const limit = st.target + (1 - st.target) * 0.5;
+        st.shown += Math.max(0, limit - st.shown) * 0.02;
+        draw();
+      }, 100);
+    }
+    draw();
   }
 
   showPause() {

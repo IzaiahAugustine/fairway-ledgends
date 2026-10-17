@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node blender/pack_models.mjs dist",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "build:poki": "tsc --noEmit && VITE_PORTAL=poki vite build --outDir dist-poki && rm -f dist-poki/assets/hdri/*_4k.hdr dist-poki/assets/textures/*_2k.jpg && cd dist-poki && zip -qr ../fairway-legends-poki.zip .",
-    "build:crazygames": "tsc --noEmit && VITE_PORTAL=crazygames vite build --outDir dist-crazygames && rm -f dist-crazygames/assets/hdri/*_4k.hdr dist-crazygames/assets/textures/*_2k.jpg && cd dist-crazygames && zip -qr ../fairway-legends-crazygames.zip .",
+    "build:poki": "tsc --noEmit && VITE_PORTAL=poki vite build --outDir dist-poki && rm -f dist-poki/assets/hdri/*_4k.hdr dist-poki/assets/textures/*_2k.jpg && node blender/pack_models.mjs dist-poki && cd dist-poki && zip -qr ../fairway-legends-poki.zip .",
+    "build:crazygames": "tsc --noEmit && VITE_PORTAL=crazygames vite build --outDir dist-crazygames && rm -f dist-crazygames/assets/hdri/*_4k.hdr dist-crazygames/assets/textures/*_2k.jpg && node blender/pack_models.mjs dist-crazygames && cd dist-crazygames && zip -qr ../fairway-legends-crazygames.zip .",
     "deploy": "npm run build && npx -y firebase-tools@13 deploy --only hosting,database"
   },
   "dependencies": {
@@ -19,7 +19,12 @@
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
     "@types/three": "^0.180.0",
+    "meshoptimizer": "^1.3.0",
+    "sharp": "^0.35.5",
     "typescript": "^5.9.2",
     "vite": "^7.1.5"
   }

@@ -1,10 +1,12 @@
 // Asset loading with caching: PBR textures (with measured average colour) and glTF models.
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { assetUrl, isTouchDevice, portalBuild } from './device';
 
 const texLoader = new THREE.TextureLoader();
-const gltfLoader = new GLTFLoader();
+// built models are Meshopt-compressed (blender/pack_models.mjs)
+const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 
 export interface TexInfo {
   tex: THREE.Texture;

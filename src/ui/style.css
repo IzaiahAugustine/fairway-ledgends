@@ -528,6 +528,7 @@ canvas#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: bl
 .lbar { position: relative; width: calc(220px * var(--fs)); height: 3px; margin-top: calc(24px * var(--fs)); overflow: hidden; border-radius: 2px; background: rgba(255, 255, 255, 0.1); }
 .lbar i { position: absolute; top: 0; bottom: 0; width: 38%; border-radius: 2px; background: var(--gold-grad); animation: lbar 1.3s ease-in-out infinite; }
 @keyframes lbar { 0% { left: -38%; } 100% { left: 100%; } }
+.lbar.det i { left: 0; width: 0; animation: none; transition: width 0.3s ease-out; }
 
 /* shared with the HUD xp chip */
 .xpbar { height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; margin-top: 8px; overflow: hidden; }

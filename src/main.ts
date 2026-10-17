@@ -26,7 +26,7 @@ import './ui/style.css';
 import { AtmospherePass } from './world/atmosphere';
 import { SkyEnvironment } from './world/environment';
 import { setImpostorRenderer } from './world/impostors';
-import { setHiResTextures } from './core/assets';
+import { loadGLTF, setHiResTextures } from './core/assets';
 
 const canvas = document.getElementById('gl') as HTMLCanvasElement;
 const uiRoot = document.getElementById('ui') as HTMLElement;
@@ -394,6 +394,7 @@ async function startMatch(opts: MatchOptions, online?: OnlineMatch) {
   const title = opts.practice ? 'Heading to the practice ground' : ev ? ev.title : 'Heading to the first tee';
   const setName = HOLE_SETS.find((x) => x.id === opts.holes)?.name ?? '';
   const fmtName = FORMATS.find((x) => x.id === opts.format)?.name ?? '';
+  trackLoading(ROUND_WORK);
   menus.showLoading(title, opts.practice ? `${course.name} · Practice` : `${course.name} · ${setName} · ${fmtName} · ${diff[0].toUpperCase()}${diff.slice(1)}`);
   stageMode = 'none';
   if (round) {
@@ -542,6 +543,38 @@ function applyTextSize() {
   applyUiScale();
 }
 
+// The loading screen's bar: work the three.js loaders have finished since the screen came up, out
+// of what's been requested. Models and skies count for more than a texture (they're the big
+// downloads). Files are only asked for as the build reaches them, so the total has a floor
+// (about what a load takes) to keep the bar from filling early.
+const BOOT_WORK = 135;
+const ROUND_WORK = 28;
+const fileWeight = (url: string) => (/\.(glb|hdr)(\?|$)/.test(url) ? 12 : 1);
+let workDone = 0;
+let workTotal = 0;
+let loadBase = { done: 0, total: 0 };
+let loadExpect = 1;
+function trackLoading(expect: number) {
+  loadBase = { done: workDone, total: workTotal };
+  loadExpect = expect;
+}
+const logLoads = import.meta.env.DEV || new URLSearchParams(location.search).has('debug');
+{
+  const m = THREE.DefaultLoadingManager;
+  const start = m.itemStart.bind(m);
+  const end = m.itemEnd.bind(m);
+  m.itemStart = (url: string) => {
+    workTotal += fileWeight(url);
+    start(url);
+  };
+  m.itemEnd = (url: string) => {
+    workDone += fileWeight(url);
+    end(url);
+    if (logLoads) console.debug(`[load] ${url.slice(0, 60)} ${workDone - loadBase.done}/${workTotal - loadBase.total}`);
+    menus.setLoadProgress((workDone - loadBase.done) / Math.max(workTotal - loadBase.total, loadExpect));
+  };
+}
+
 async function boot() {
   // game portal SDK first (no-op off-portal); never hold the game up for it
   await Promise.race([portal.init(), new Promise((r) => setTimeout(r, 6000))]);
@@ -561,6 +594,7 @@ async function boot() {
   applyTextSize();
   applySound();
   menus.showLoading('Fairway Legends', 'Loading the clubhouse…');
+  trackLoading(BOOT_WORK);
   renderer.toneMappingExposure = STAGE_EXPOSURE;
   try {
     await buildStage();
@@ -570,6 +604,8 @@ async function boot() {
   menus.showMain();
   portal.loadingFinished();
   frame();
+  // while the player looks at the menu, fetch the buildings every round needs (cached for it)
+  for (const k of ['clubhouse', 'cart', 'halfway', 'teesign']) void loadGLTF(`models/ai/${k}.glb`);
   // invite link: ?join=CODE opens Play Online and joins straight away
   const params = new URLSearchParams(location.search);
   const joinCode = params.get('join');
