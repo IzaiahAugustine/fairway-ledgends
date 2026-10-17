@@ -12,6 +12,7 @@ import { hashString } from './core/rng';
 import { TEXT_SCALE, persist, save, type Appearance } from './core/save';
 import { HOLE_SETS, courseById, courseForSet } from './data/courses';
 import { careerEvent } from './data/career';
+import { DAILY_HOLES, dailyChallenge, dailyCourse } from './data/daily';
 import { FORMATS, type MatchOptions } from './game/match';
 import { PERSONALITIES, makeOpponent, planAiShot, type Opponent } from './game/ai';
 import type { OnlineMatch } from './net/online';
@@ -388,11 +389,12 @@ portal.onAdEnd = () => {
 
 async function startMatch(opts: MatchOptions, online?: OnlineMatch) {
   const full = courseById(opts.courseId);
-  const { course, firstHole } = courseForSet(full, opts.practice ? 'all' : opts.holes);
+  const daily = opts.daily ? dailyChallenge(opts.daily) : null;
+  const { course, firstHole } = daily ? dailyCourse(daily) : courseForSet(full, opts.practice ? 'all' : opts.holes);
   const diff = opts.difficulty;
   const ev = careerEvent(opts.careerEvent);
-  const title = opts.practice ? 'Heading to the practice ground' : ev ? ev.title : 'Heading to the first tee';
-  const setName = HOLE_SETS.find((x) => x.id === opts.holes)?.name ?? '';
+  const title = opts.practice ? 'Heading to the practice ground' : ev ? ev.title : daily ? 'Daily Challenge' : 'Heading to the first tee';
+  const setName = daily ? `Holes ${firstHole}-${firstHole + DAILY_HOLES - 1}` : HOLE_SETS.find((x) => x.id === opts.holes)?.name ?? '';
   const fmtName = FORMATS.find((x) => x.id === opts.format)?.name ?? '';
   trackLoading(ROUND_WORK);
   menus.showLoading(title, opts.practice ? `${course.name} · Practice` : `${course.name} · ${setName} · ${fmtName} · ${diff[0].toUpperCase()}${diff.slice(1)}`);
@@ -402,14 +404,17 @@ async function startMatch(opts: MatchOptions, online?: OnlineMatch) {
     round = null;
   }
   await new Promise((r) => setTimeout(r, 30));
-  const seed = online?.settings ? online.settings.seed : (hashString(course.id) ^ Date.now()) >>> 0;
-  // a career event always brings the same opponent; online it's the friend
+  // the daily challenge plays out the same (wind, pins, opponent) for everyone that day
+  const seed = online?.settings ? online.settings.seed : daily ? daily.seed : (hashString(course.id) ^ Date.now()) >>> 0;
+  // a career event or the daily challenge always brings the same opponent; online it's the friend
   const friend = online?.opponent;
   const opp: Opponent = friend
     ? { name: friend.name, appearance: friend.appearance, personality: { ...PERSONALITIES[0], id: 'friend', label: 'Friend', style: friend.style } }
     : ev
       ? makeOpponent(hashString(ev.id), ev.personality)
-      : makeOpponent(seed);
+      : daily
+        ? makeOpponent(daily.seed, daily.personality)
+        : makeOpponent(seed);
   renderer.toneMappingExposure = course.exposure * 0.92;
   courseEnv.setQuality(save.settings.quality);
   const r = new Round(courseScene, camera, courseEnv, hud, canvas, {

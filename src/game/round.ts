@@ -3,7 +3,8 @@
 import * as THREE from 'three';
 import { sfx } from '../audio/sfx';
 import { Rng, clamp, toYards } from '../core/rng';
-import { playerLevel, save, type Difficulty } from '../core/save';
+import { isTouchDevice } from '../core/device';
+import { persist, playerLevel, save, type Difficulty } from '../core/save';
 import { CLUBS, PUTT_SHOT, SHOT_TYPES, TIERS, animFor, shotTypeById, type ClubDef, type ShotTypeDef } from '../data/clubs';
 import { DRIVING_RANGE, traits, type CourseDef } from '../data/courses';
 import { ballColor } from '../data/cosmetics';
@@ -84,6 +85,12 @@ const GIMME: Record<Difficulty, number> = { easy: 1.25, medium: 0.95, hard: 0.75
 
 export class Round {
   private state: State = 'loading';
+  // a player's first round: tips for the first shot and the first putt (save.tutorialDone)
+  private coaching = false;
+  private coachStep: 'aim' | 'swing' | 'after' | 'putt' | null = null;
+  private coachT = 0;
+  private coachedShot = false;
+  private coachedPutt = false;
   private match: MatchState;
   private holeIdx = 0;
   private field!: HoleField;
@@ -204,6 +211,7 @@ export class Round {
   }
 
   async start() {
+    this.coaching = !save.tutorialDone && !this.cfg.online && !this.isRange;
     const pg = await Golfer.create();
     pg.applyAppearance(save.appearance);
     const ag = await Golfer.create();
@@ -518,6 +526,7 @@ export class Round {
     this.resetAim();
     this.hud.setTurn('YOUR SHOT');
     this.hud.setAimUi(true);
+    this.coachTurn();
     this.hud.setHelp(this.club.kind === 'putter', save.settings.swingMode);
     this.swing.reset();
     this.swing.enabled = true;
@@ -823,6 +832,8 @@ export class Round {
     const fine = this.keys.has('Shift');
     let changed = false;
     const aimRate = ((putting ? (fine ? 1.5 : 7) : fine ? 4 : 22) * Math.PI) / 180;
+    // tips: once they've turned, move on to the swing shortly after
+    if (this.coachStep === 'aim' && (this.keys.has('a') || this.keys.has('d'))) this.coachT = Math.max(this.coachT, 5.5);
     if (this.keys.has('a')) { this.aimAngle -= aimRate * dt; changed = true; }
     if (this.keys.has('d')) { this.aimAngle += aimRate * dt; changed = true; }
     const pRate = fine ? 0.08 : 0.35;
@@ -842,6 +853,66 @@ export class Round {
     }
   }
 
+  // ---------------------------------------------------------------- first-round tips
+
+  private coachTurn() {
+    if (!this.coaching) return;
+    const key = (k: string) => `<span class="key">${k}</span>`;
+    if (this.club.kind === 'putter') {
+      if (this.coachedPutt) return;
+      this.coachStep = 'putt';
+      this.hud.coach(
+        'On the green',
+        isTouchDevice
+          ? 'The line shows how far the ball will roll: set it with the <b>Power</b> buttons. Tap <b>Green</b> to read the slope.'
+          : `The line shows how far the ball will roll: set it with ${key('W')}${key('S')}. Press ${key('G')} to read the slope.`,
+      );
+      return;
+    }
+    if (this.coachedShot) return;
+    this.coachStep = 'aim';
+    this.coachT = 0;
+    this.hud.coach(
+      'Aim your shot',
+      isTouchDevice
+        ? 'Hold the <b>Aim</b> arrows to turn. The line shows where the ball will land. Your club is picked for you.'
+        : `Hold ${key('A')} or ${key('D')} to turn. The line shows where the ball will land. Your club is picked for you.`,
+    );
+  }
+
+  private coachSwing() {
+    this.coachStep = 'swing';
+    const tap = isTouchDevice ? 'Tap' : 'Click';
+    this.hud.coach(
+      'Now swing',
+      save.settings.swingMode !== 'stick'
+        ? `${tap} once to start, again at the <b>blue line</b> for power, then in the <b>green zone</b>.`
+        : isTouchDevice
+          ? 'Put a finger on the course, pull <b>down</b> to the blue line, then flick <b>up</b> straight.'
+          : 'Hold the <b>left mouse button</b>, pull <b>down</b> to the blue line, then push <b>up</b> smoothly and straight.',
+    );
+  }
+
+  private coachShot(putting: boolean) {
+    this.hud.coach(null);
+    if (putting) {
+      this.coachedPutt = true;
+      this.coachStep = null;
+    } else if (!this.coachedShot) {
+      this.coachedShot = true;
+      this.coachStep = 'after';
+    }
+  }
+
+  private coachAfterShot(holed: boolean) {
+    this.coachStep = null;
+    if (holed) return;
+    this.hud.coach('Nice!', 'Keep going until the ball drops in the hole. The fewest strokes wins.');
+    this.after(4, () => {
+      if (this.coachStep === null) this.hud.coach(null);
+    });
+  }
+
   // ---------------------------------------------------------------- swinging
 
   private onBackswing(frac: number) {
@@ -855,6 +926,7 @@ export class Round {
       }
     }
     this.player.golfer.setBackswing(frac);
+    if (this.coachStep && this.coachStep !== 'after') this.hud.coach(null);
   }
 
   private onSwingResult(r: SwingResult) {
@@ -885,6 +957,7 @@ export class Round {
     }
     c.prev = { pos: c.pos.clone(), lie: c.lie, teed: c.teed };
     this.lastShot = { comp: c, r, setup, start: c.pos.clone() };
+    if (this.coaching && c === this.player) this.coachShot(putting);
     this.tearDivot(c, setup, swing);
     this.flight = { comp: c, r, t: 0, ev: 0, setup, swing, start: c.pos.clone(), speed: 1 };
     this.state = 'flight';
@@ -1170,6 +1243,7 @@ export class Round {
       this.hud.showBanner('PICKED UP', `${c.side === 'player' ? 'You concede' : c.name + ' concedes'} the hole`, '', 2200);
     }
     this.state = 'between';
+    if (this.coachStep === 'after' && c === this.player) this.coachAfterShot(c.holed);
     if (this.aiSkip && c === this.ai) delay = Math.min(delay, 1.2);
     const proceed = () =>
       this.after(delay, () => {
@@ -1338,6 +1412,14 @@ export class Round {
 
   private endHole() {
     if (this.state === 'over') return;
+    if (this.coaching) {
+      // one hole of tips is enough
+      this.coaching = false;
+      this.coachStep = null;
+      this.hud.coach(null);
+      save.tutorialDone = true;
+      persist();
+    }
     this.state = 'between';
     const p = this.player, a = this.ai;
     const par = this.field.def.par;
@@ -1615,6 +1697,10 @@ export class Round {
     if (this.disposed) return;
     terrainTime.value += dt;
     if (this.paused) return;
+    if (this.coachStep === 'aim' && this.state === 'aim') {
+      this.coachT += dt;
+      if (this.coachT > 7) this.coachSwing();
+    }
     // timers
     if (this.timers.length) {
       const due: (() => void)[] = [];
@@ -1698,6 +1784,7 @@ export class Round {
 
   dispose() {
     this.disposed = true;
+    this.hud.coach(null);
     setAltitude(0);
     this.swing.enabled = false;
     this.replay?.ball.dispose();

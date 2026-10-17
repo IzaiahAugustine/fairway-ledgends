@@ -11,6 +11,7 @@ import { CLUBS, MAX_TIER, SHOT_TYPES, TIERS, upgradeCost } from '../data/clubs';
 import { BALL_COLORS, CLUB_FINISHES, SHIRT_PATTERNS, type Unlock } from '../data/cosmetics';
 import { COURSES, DRIVING_RANGE, HOLE_SETS, courseById, courseForSet, coursePar, courseYards, type CourseDef, type HoleSet } from '../data/courses';
 import { CAREER, careerEvent } from '../data/career';
+import { DAILY_HOLES, DAILY_PLAY_XP, DAILY_WIN_XP, dailyChallenge, dailyStreakBonus, previousDay } from '../data/daily';
 import { SWING_STYLES, swingStyleById, type SwingStyle, type SwingStyleId } from '../data/swingStyles';
 import { FlatGround, simulateShot } from '../physics/ballPhysics';
 import { PERFECT_SWING, fullCarry, launchFor } from '../game/shotModel';
@@ -68,6 +69,7 @@ const ICON = {
   check: svg('<path d="m5.5 12.5 4.2 4.2 8.8-9.2"/>'),
   exit: svg('<path d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14"/><path d="M10 16.5 5.5 12 10 7.5M5.5 12H15"/>'),
   again: svg('<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4.2h-4.2"/>'),
+  calendar: svg('<rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/><path d="m9.3 14.6 1.9 1.9 3.7-3.9"/>'),
   home: svg('<path d="m4 11 8-7 8 7"/><path d="M6.5 9.5V20h11V9.5"/>'),
   rotate: svg('<path d="M4.5 12a7.5 7.5 0 0 1 13.2-4.9"/><path d="M18.5 3.5v4h-4"/><path d="M19.5 12a7.5 7.5 0 0 1-13.2 4.9"/><path d="M5.5 20.5v-4h4"/>'),
 };
@@ -498,6 +500,18 @@ export class Menus {
     };
     const textSize = { normal: 'Normal', large: 'Large', xl: 'Extra large' }[save.settings.textSize];
     const nextEv = CAREER[Math.min(save.career.stage, CAREER.length - 1)];
+    // daily challenge: a wide tile above the rest
+    const today = dailyChallenge();
+    const doneToday = save.daily.last === today.key;
+    const streak = save.daily.last === today.key || save.daily.last === previousDay(today.key) ? save.daily.streak : 0;
+    const dCourse = courseById(today.courseId);
+    tile(3, 'daily', ICON.calendar, 'Daily Challenge',
+      doneToday
+        ? `Done for today${streak > 1 ? ` · ${streak}-day streak` : ''} · new one tomorrow`
+        : `${dCourse.name} · ${DAILY_HOLES} holes · win for +${DAILY_WIN_XP + dailyStreakBonus(streak + 1)} XP${streak > 0 ? ` · ${streak}-day streak` : ''}`,
+      () => this.hooks.startMatch({ courseId: today.courseId, difficulty: 'medium', format: 'stroke', holes: 'front', daily: today.key }),
+      doneToday ? 'Done' : 'New');
+    tiles.lastElementChild?.classList.add('daily', ...(doneToday ? ['done'] : []));
     tile(3, 'career', ICON.trophy, 'Career', save.career.stage >= CAREER.length ? 'Champion! Replay any event' : `Next: ${nextEv.title}`, () => this.showCareer(), `${Math.min(save.career.stage, CAREER.length)}/${CAREER.length}`);
     tile(3, 'online', ICON.globe, 'Play Online', 'Challenge a friend', () => this.showOnline());
     tile(3, 'practice', ICON.play, 'Practice', 'No opponent, no pressure', () => this.showPlay(true));
@@ -1293,7 +1307,8 @@ export class Menus {
         else if (hr.player - hr.par === -1) save.stats.birdies++;
       }
     }
-    if (res === 'won') save.best[course.id] = `${diff}: ${m.statusText()}`;
+    // (a daily challenge is only three holes: not a course record)
+    if (res === 'won' && !options.daily) save.best[course.id] = `${diff}: ${m.statusText()}`;
     // career: winning the current event pays its purse and unlocks the next one
     const ev = careerEvent(options.careerEvent);
     let careerNote = '';
@@ -1309,6 +1324,22 @@ export class Menus {
         careerNote = next ? `Career: <b>${esc(ev.title)}</b> won! Next up: <b>${esc(next.title)}</b>` : `Career complete: you are a <b>Fairway Legend</b>!`;
       } else if (res === 'won') careerNote = `Career: ${esc(ev.title)} won again.`;
       else careerNote = `Career: ${esc(ev.title)} — win it to move on.`;
+    }
+    // daily challenge: the first finish of the day pays a purse (more for a win) plus the streak bonus
+    if (options.daily) {
+      const d = save.daily;
+      if (d.last !== options.daily) {
+        d.streak = d.last === previousDay(options.daily) ? d.streak + 1 : 1;
+        d.last = options.daily;
+        const purse = res === 'won' ? DAILY_WIN_XP : DAILY_PLAY_XP;
+        const bonus = dailyStreakBonus(d.streak);
+        xp.lines.push({ label: res === 'won' ? 'Daily Challenge won' : 'Daily Challenge played', xp: purse });
+        if (bonus) xp.lines.push({ label: `${d.streak}-day streak`, xp: bonus });
+        xp.total += purse + bonus;
+        save.xp += purse + bonus;
+        save.xpEarned += purse + bonus;
+        careerNote = `Daily Challenge done${d.streak > 1 ? ` · <b>${d.streak}-day streak</b>` : ''}. Come back tomorrow for a new one${res === 'won' ? '' : ` (a win pays ${DAILY_WIN_XP} XP)`}!`;
+      } else careerNote = 'Daily Challenge already done today. A new one comes tomorrow!';
     }
     persist();
     const el = h('div', { class: 'screen results' });

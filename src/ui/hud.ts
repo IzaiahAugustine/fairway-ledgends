@@ -58,6 +58,7 @@ export class Hud {
   private feedbackEl: HTMLElement;
   private turnEl: HTMLElement;
   private help: HTMLElement;
+  private coachEl: HTMLElement;
   private resultEl: HTMLElement;
   private tags: HTMLElement;
   private card: HTMLElement;
@@ -96,13 +97,14 @@ export class Hud {
     this.feedbackEl = h('div', { class: 'feedback' });
     this.turnEl = h('div', { class: 'turn panel' });
     this.help = h('div', { class: 'help panel' });
+    this.coachEl = h('div', { class: 'coach panel hidden' });
     this.resultEl = h('div', { class: 'shot-result panel hidden' });
     this.tags = h('div', { class: 'tags' });
     this.card = h('div', { class: 'scorecard hidden' });
     this.intro = h('div', { class: 'intro hidden' });
     this.xpChip = h('div', { class: 'xp-chip panel' });
     this.xpPops = h('div', { class: 'xp-pops' });
-    this.root.append(this.tags, this.holeCard, this.match, this.wind, this.xpChip, this.xpPops, miniWrap, this.shot, clubDock, this.meter, this.meterHint, this.banner, this.feedbackEl, this.turnEl, this.help, this.resultEl, this.intro, this.card);
+    this.root.append(this.tags, this.holeCard, this.match, this.wind, this.xpChip, this.xpPops, miniWrap, this.shot, clubDock, this.meter, this.meterHint, this.banner, this.feedbackEl, this.turnEl, this.help, this.coachEl, this.resultEl, this.intro, this.card);
     this.buildMeter();
   }
 
@@ -196,6 +198,12 @@ export class Hud {
     void this.xpChip.offsetWidth;
     this.xpChip.classList.add('flash');
     setTimeout(() => el.remove(), 2600);
+  }
+
+  /** A tip card for new players (the body may hold markup); null hides it. */
+  coach(title: string | null, body = '') {
+    this.coachEl.classList.toggle('hidden', !title);
+    if (title) this.coachEl.innerHTML = `<div class="k">Tip</div><div class="t">${esc(title)}</div><div class="b">${body}</div>`;
   }
 
   setTurn(text: string, color = 'var(--accent)') {

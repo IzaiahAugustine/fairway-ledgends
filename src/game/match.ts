@@ -23,6 +23,8 @@ export interface MatchOptions {
   careerEvent?: string;
   /** Force the weather instead of picking it. */
   weather?: WeatherKind;
+  /** The daily challenge being played: its day, YYYY-MM-DD (see data/daily). */
+  daily?: string;
 }
 
 export const FORMATS: { id: Format; name: string; desc: string }[] = [

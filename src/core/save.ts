@@ -61,6 +61,10 @@ export interface SaveData {
     autoGfx: boolean };
   /** Career mode: index of the next event to win. */
   career: { stage: number };
+  /** The first-round tips have been shown (see Round's coach). */
+  tutorialDone: boolean;
+  /** Daily challenge: the last day's challenge finished (YYYY-MM-DD) and the run of days in a row. */
+  daily: { last: string; streak: number };
 }
 
 const KEY = 'fairwayLegends.save.v1';
@@ -99,6 +103,8 @@ function defaults(): SaveData {
     swingStyle: 'classic',
     settings: { swingMode: 'stick', gimmes: true, sound: true, quality: isTouchDevice ? 'medium' : 'high', difficulty: 'medium', courseId: 'coral-cove', textSize: 'large', format: 'match', holes: 'front', weather: 'random', volMaster: 0.7, volEffects: 0.8, volAmbience: 0.5, volMusic: 0.5, musicInRound: false, wind: 'light', gfxPriority: 'balanced', autoGfx: true },
     career: { stage: 0 },
+    tutorialDone: false,
+    daily: { last: '', streak: 0 },
   };
 }
 
@@ -137,6 +143,9 @@ function load(): SaveData {
       best: { ...(parsed.best ?? {}) },
       settings: { ...d.settings, ...(parsed.settings ?? {}) },
       career: { ...d.career, ...(parsed.career ?? {}) },
+      // saves from before the tips: anyone who has finished a match already knows the game
+      tutorialDone: parsed.tutorialDone ?? (parsed.stats?.played ?? 0) > 0,
+      daily: { ...d.daily, ...(parsed.daily ?? {}) },
     };
   } catch {
     return d;
