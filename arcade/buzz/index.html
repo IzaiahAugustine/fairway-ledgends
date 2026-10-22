@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buzz · Find the move tonight</title>
+<meta name="description" content="Buzz shows tonight's parties near your school or city, live crowd levels, and gives you a pass for the door. Join the waitlist.">
+<link rel="canonical" href="https://augustinesarcade.com/buzz/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://augustinesarcade.com/buzz/">
+<meta property="og:title" content="Buzz · Find the move tonight">
+<meta property="og:description" content="Every party near you, live crowd levels, and your pass for the door. Join the waitlist.">
+<meta property="og:image" content="https://augustinesarcade.com/buzz/img/share.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#05060B">
+<link rel="icon" href="img/buzz-neon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  .wrap { width: min(1120px, 100% - 32px); padding-top: 28px; }
+  header nav a.cta { color: #fff; background: #2F6BFF; padding: 7px 14px; border-radius: 999px; font-weight: 700; }
+  .hero { display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; align-items: center; margin-top: 18px; }
+  .logo { width: min(320px, 70%); display: block; margin: -30px 0 -18px -38px; }
+  .hero h1 { font: 800 clamp(44px, 7vw, 76px)/1 Outfit, sans-serif; letter-spacing: -.02em; margin: 0; }
+  .grad { background: linear-gradient(90deg, #5CC8FF, #2F6BFF); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { font-size: clamp(17px, 2vw, 20px); color: #C9D0E0; margin: 18px 0 26px; max-width: 520px; }
+  form { background: #10131D; border: 1px solid #252B3B; border-radius: 22px; padding: 18px; display: grid; gap: 10px; max-width: 520px; }
+  form label { font-size: 13px; font-weight: 700; color: #9AA3B8; }
+  input[type=email], input[type=text] { width: 100%; box-sizing: border-box; background: #05060B; border: 1px solid #252B3B; border-radius: 14px; color: #F4F6FF; font: 500 16px 'Plus Jakarta Sans', sans-serif; padding: 14px 16px; }
+  input:focus { outline: 2px solid #2F6BFF; border-color: transparent; }
+  .roles { display: flex; gap: 8px; }
+  .roles label { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 11px; border-radius: 12px; border: 1px solid #252B3B; cursor: pointer; color: #F4F6FF; font-size: 15px; }
+  .roles input { accent-color: #2F6BFF; }
+  .hp { position: absolute; left: -9999px; }
+  button { font: 800 17px 'Plus Jakarta Sans', sans-serif; color: #fff; background: #2F6BFF; border: 0; border-radius: 14px; padding: 15px; cursor: pointer; box-shadow: 0 14px 34px -12px rgba(47,107,255,.95); }
+  button[disabled] { opacity: .6; cursor: default; }
+  .msg { font-size: 15px; min-height: 1.2em; margin: 2px 2px 0; }
+  .msg.ok { color: #3DDC97; } .msg.err { color: #FF6B5E; }
+  .fine { font-size: 12.5px; color: #9AA3B8; margin: 0; }
+  .phoneWrap { display: flex; justify-content: center; }
+  .phoneWrap .phone { transform: rotate(4deg); }
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 72px; }
+  .f { background: #10131D; border: 1px solid #252B3B; border-radius: 20px; padding: 22px; }
+  .f h3 { font: 700 21px Outfit, sans-serif; margin: 0 0 6px; } .f p { margin: 0; color: #9AA3B8; font-size: 15px; line-height: 1.55; }
+  .f .ic { width: 38px; height: 38px; border-radius: 12px; background: rgba(47,107,255,.16); display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+  .video { margin-top: 72px; display: grid; grid-template-columns: .8fr 1.2fr; gap: 40px; align-items: center; }
+  .video video { width: 100%; max-width: 360px; border-radius: 26px; border: 1px solid #252B3B; box-shadow: 0 0 80px rgba(47,107,255,.3); justify-self: center; }
+  .video h2 { font: 800 clamp(30px, 4vw, 44px)/1.05 Outfit, sans-serif; margin: 0 0 12px; }
+  .video p { color: #C9D0E0; }
+  footer { display: flex; flex-wrap: wrap; gap: 18px; justify-content: space-between; }
+  @media (max-width: 860px) {
+    .hero, .video { grid-template-columns: 1fr; }
+    .phoneWrap { order: 2; } .phoneWrap .phone { transform: rotate(3deg) scale(.82); transform-origin: top center; margin-bottom: -150px; }
+    .features { grid-template-columns: 1fr; }
+    .logo { margin-left: -24px; }
+  }
+  .phone { width: 390px; height: 820px; border-radius: 58px; background: #1a1c22; padding: 12px; box-shadow: 0 0 0 2px #3a3d46, 0 40px 90px rgba(0,0,0,.65), 0 0 120px rgba(47,107,255,.35); }
+.screen { position: relative; width: 100%; height: 100%; border-radius: 47px; overflow: hidden; background: #05060B; font-family: 'Plus Jakarta Sans', sans-serif; color: #F4F6FF; }
+.glow { position: absolute; inset: -20% -30% auto -30%; height: 60%; background: radial-gradient(closest-side, rgba(47,107,255,.45), transparent); }
+.status { position: relative; display: flex; justify-content: space-between; align-items: center; padding: 14px 30px 0; font: 600 14px 'Plus Jakarta Sans'; }
+.isl { width: 104px; height: 30px; border-radius: 20px; background: #000; }
+.hdr { position: relative; display: flex; align-items: flex-end; gap: 10px; padding: 20px 18px 0; }
+.hdr > div:first-child { flex: 1; }
+.h1 { font: 700 32px Outfit; letter-spacing: -.01em; }
+.sub { font-size: 12.5px; color: #9AA3B8; margin-top: 2px; } .sub b { color: #5CC8FF; }
+.bell { position: relative; width: 36px; height: 36px; border-radius: 18px; background: #10131D; border: 1px solid #252B3B; display: flex; align-items: center; justify-content: center; }
+.bell i { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 4px; background: #5CC8FF; border: 1.5px solid #10131D; }
+.seg { display: flex; background: #10131D; border: 1px solid #252B3B; border-radius: 999px; padding: 3px; font: 700 12px 'Plus Jakarta Sans'; }
+.seg span { padding: 6px 11px; border-radius: 999px; color: #9AA3B8; } .seg .on { background: #1A1F2D; color: #F4F6FF; }
+.chips { position: relative; display: flex; gap: 7px; padding: 14px 18px 0; white-space: nowrap; }
+.chips span { font: 600 12px 'Plus Jakarta Sans'; padding: 7px 12px; border-radius: 999px; background: #1A1F2D; color: #9AA3B8; }
+.chips .on { background: #2F6BFF; color: #fff; }
+.sec { position: relative; padding: 18px 18px 10px; font: 700 11px 'Plus Jakarta Sans'; letter-spacing: .12em; color: #9AA3B8; }
+.card { position: relative; margin: 0 18px 12px; border-radius: 22px; overflow: hidden; background: #10131D; border: 1px solid #252B3B; }
+.flyer { height: 92px; position: relative; }
+.f1 { background: radial-gradient(80% 120% at 20% 100%, #FF5C8A 0, transparent 60%), radial-gradient(70% 120% at 90% 0, #5CC8FF 0, transparent 60%), linear-gradient(135deg, #2F6BFF, #7A3CFF); }
+.f2 { background: radial-gradient(80% 120% at 80% 100%, #14B8A6 0, transparent 60%), linear-gradient(135deg, #1A1F2D, #2F6BFF); }
+.tag { position: absolute; left: 12px; bottom: 10px; font: 700 10.5px 'Plus Jakarta Sans'; letter-spacing: .1em; text-transform: uppercase; background: rgba(5,6,11,.55); padding: 4px 8px; border-radius: 8px; }
+.body { padding: 11px 14px 13px; }
+.t { font: 700 19px Outfit; } .w { font-size: 12.5px; color: #9AA3B8; margin: 2px 0 9px; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+.c { display: inline-flex; align-items: center; gap: 5px; font: 600 11.5px 'Plus Jakarta Sans'; padding: 5px 10px; border-radius: 999px; background: #1A1F2D; color: #9AA3B8; }
+.c i { width: 6px; height: 6px; border-radius: 3px; }
+.packed { background: rgba(255,92,138,.16); color: #FF5C8A; } .packed i { background: #FF5C8A; }
+.chill { background: rgba(92,200,255,.16); color: #5CC8FF; } .chill i { background: #5CC8FF; }
+.fr { background: rgba(92,200,255,.16); color: #5CC8FF; } .fr i { background: #5CC8FF; }
+.tabs { position: absolute; left: 14px; right: 14px; bottom: 16px; height: 68px; border-radius: 34px; background: rgba(16,19,29,.92); border: 1px solid #252B3B; display: flex; justify-content: space-around; align-items: center; }
+.tabs span { display: flex; flex-direction: column; align-items: center; gap: 3px; font: 600 10.5px 'Plus Jakarta Sans'; color: #9AA3B8; }
+.tabs .on { color: #5CC8FF; }
+.msgs { position: relative; display: flex; flex-direction: column; gap: 14px; padding: 22px 18px 0; }
+.m { display: flex; gap: 9px; align-items: flex-end; }
+.m.r { justify-content: flex-end; }
+.av { width: 30px; height: 30px; border-radius: 15px; display: flex; align-items: center; justify-content: center; font: 800 11px 'Plus Jakarta Sans'; color: #fff; flex: none; }
+.m em { display: block; font: 700 11.5px 'Plus Jakarta Sans'; font-style: normal; color: #9AA3B8; margin: 0 0 3px 2px; }
+.m p { margin: 0; font-size: 14.5px; line-height: 1.35; padding: 10px 14px; border-radius: 18px; border-bottom-left-radius: 6px; background: #1A1F2D; max-width: 250px; }
+.m.r p { background: #2F6BFF; border-bottom-left-radius: 18px; border-bottom-right-radius: 6px; color: #fff; }
+.composer { position: absolute; left: 14px; right: 14px; bottom: 24px; display: flex; gap: 10px; align-items: center; }
+.composer span { flex: 1; font-size: 14px; color: #9AA3B8; padding: 13px 18px; border-radius: 24px; background: #10131D; border: 1px solid #252B3B; }
+.composer i { width: 46px; height: 46px; border-radius: 23px; background: #2F6BFF; display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <a href="./"><span class="dot"></span><b>Buzz</b></a>
+  <nav><a href="support.html">Help</a><a href="#join" class="cta">Join the waitlist</a></nav>
+</header>
+
+<section class="hero">
+  <div>
+    <img class="logo" src="img/buzz-neon.png" alt="Buzz">
+    <h1>Find the move <span class="grad">tonight.</span></h1>
+    <p class="lead">Every party near your school or city, live crowd levels, a chat for what&#39;s happening, and your pass for the door. All in one app.</p>
+    <form id="join" novalidate>
+      <label for="email">Get early access when Buzz launches</label>
+      <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+      <input id="area" name="area" type="text" autocomplete="off" placeholder="Your school or city (optional)" maxlength="80">
+      <div class="roles">
+        <label><input type="radio" name="role" value="GUEST" checked> I go out</label>
+        <label><input type="radio" name="role" value="HOST"> I host parties</label>
+      </div>
+      <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button type="submit">Join the waitlist</button>
+      <p class="msg" id="msg" role="status"></p>
+      <p class="fine">18+ only. We&#39;ll only email you about Buzz. See our <a href="privacy.html">Privacy Policy</a>.</p>
+    </form>
+  </div>
+  <div class="phoneWrap"><div class="phone">
+  <div class="screen">
+    <div class="glow"></div>
+    <div class="status"><span>10:42</span><span class="isl"></span><span>●●● ▮</span></div>
+    <div class="hdr">
+      <div><div class="h1">Tonight</div><div class="sub">Near campus · <b>Change</b></div></div>
+      <div class="bell"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#F4F6FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg><i></i></div>
+      <div class="seg"><span class="on">List</span><span>Map</span></div>
+    </div>
+    <div class="chips"><span class="on">All</span><span>Open now</span><span>Free</span><span>Friends going</span></div>
+    <div class="sec">LIVE NOW · 2 PARTIES</div>
+    <div class="card">
+      <div class="flyer f1"><span class="tag">Night Owls</span></div>
+      <div class="body">
+        <div class="t">Fall Kickoff</div>
+        <div class="w">Until 2:00 AM · 0.4 mi</div>
+        <div class="row"><span class="c packed"><i></i>Packed</span><span class="c">Free</span><span class="c">86 going</span><span class="c fr"><i></i>3 friends</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="flyer f2"><span class="tag">Vinyl Club</span></div>
+      <div class="body">
+        <div class="t">Silent Disco</div>
+        <div class="w">Until 1:30 AM · 0.8 mi</div>
+        <div class="row"><span class="c chill"><i></i>Chill</span><span class="c">$10</span><span class="c">41 going</span></div>
+      </div>
+    </div>
+    <div class="tabs">
+      <span class="on"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#5CC8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>Tonight</span>
+      <span><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#9AA3B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>The Move</span>
+      <span><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#9AA3B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>Passes</span>
+      <span><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#9AA3B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Profile</span>
+    </div>
+  </div>
+</div></div>
+</section>
+
+<section class="features">
+  <div class="f"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#5CC8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg></div><h3>Tonight, on one screen</h3><p>Every party near you, live now and later, on a list or a map. Filter by free, open now, or where your friends are going.</p></div>
+  <div class="f"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#5CC8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div><h3>Know before you go</h3><p>Live crowd levels from people who are actually there: dead, chill, or packed.</p></div>
+  <div class="f"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#5CC8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></div><h3>The Move</h3><p>A chat for your school or area. Ask what the move is and get answers from people out tonight.</p></div>
+  <div class="f"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#5CC8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg></div><h3>Your pass for the door</h3><p>Get on the list, grab entry, and show a QR pass that changes every 30 seconds, so screenshots don&#39;t work.</p></div>
+  <div class="f"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#5CC8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><h3>Friends, not strangers</h3><p>See which friends are going. Only your friends see where you&#39;re headed.</p></div>
+  <div class="f"><div class="ic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#5CC8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg></div><h3>Built for hosts</h3><p>Guest lists, approvals, door scanning and headcount. Addresses stay private until a host lets you in.</p></div>
+</section>
+
+<section class="video">
+  <video src="buzz-promo.mp4" poster="img/share.jpg" controls playsinline muted loop preload="none"></video>
+  <div><h2>What&#39;s the <span class="grad">move</span>?</h2><p>Stop asking the group chat. Open Buzz, see what&#39;s live, check who&#39;s going, and get in.</p><p><a href="#join">Join the waitlist &rarr;</a></p></div>
+</section>
+
+<footer><span>&copy; 2026 Exolve Ventures LLC. Buzz is made by Augustine&#39;s Arcade.</span><span><a href="terms.html">Terms</a> &middot; <a href="privacy.html">Privacy</a> &middot; <a href="support.html">Help</a></span></footer>
+</div>
+
+<script>
+  const WAITLIST_URL = 'https://qh42iq9itg.execute-api.us-east-2.amazonaws.com/waitlist';
+  const form = document.getElementById('join');
+  const msg = document.getElementById('msg');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(form));
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(data.email).trim())) {
+      msg.className = 'msg err'; msg.textContent = 'Enter a valid email address.'; return;
+    }
+    const btn = form.querySelector('button');
+    btn.disabled = true; msg.className = 'msg'; msg.textContent = '';
+    try {
+      const res = await fetch(WAITLIST_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(out.error || 'Something went wrong. Try again.');
+      msg.className = 'msg ok'; msg.textContent = "You're on the list. We'll email you when Buzz launches near you.";
+      form.reset();
+    } catch (err) {
+      msg.className = 'msg err'; msg.textContent = err.message || 'Something went wrong. Try again.';
+    } finally { btn.disabled = false; }
+  });
+</script>
+</body>
+</html>
