@@ -72,8 +72,8 @@
       </div>
       <div class="tags" id="tags"></div>
       <p class="desc" id="desc" hidden></p>
-      <a class="cta" id="open" href="#">Open in Buzz</a>
-      <a class="cta second" href="../#join">Don&#39;t have Buzz? Get early access</a>
+      <a class="cta" id="open" href="#">Get on the list</a>
+      <a class="cta second" href="../#join">Get early access to the Buzz app</a>
       <p class="fine" id="fine"></p>
     </div>
   </article>
@@ -86,6 +86,8 @@
   // The public, read-only event lookup on the Buzz backend. It only ever returns what anyone may see:
   // never an address, and nothing at all for invite-only events. (This is the dev stage; point it at prod at launch.)
   const API = 'https://qh42iq9itg.execute-api.us-east-2.amazonaws.com';
+  // Buzz running in the browser (the same app, published from the buzz repo with `npm run web:deploy`).
+  const APP = 'https://buzz-augustinesarcade.web.app';
   const $ = (id) => document.getElementById(id);
   const show = (id) => { for (const s of ['loading', 'missing', 'event']) $(s).hidden = s !== id; };
 
@@ -116,12 +118,14 @@
     const status = ev.cancelled ? 'Cancelled' : over ? 'Ended' : starts <= now ? 'Live now' : ev.full ? 'Full' : '';
     if (status) { $('pill').textContent = status; $('pill').hidden = false; $('pill').classList.toggle('bad', ev.cancelled || over); }
 
-    $('open').href = `buzz://party/${encodeURIComponent(ev.id)}`;
+    // Buzz in the browser: sign in with an email, then register and get a pass, no app needed.
+    $('open').href = `${APP}/party/${encodeURIComponent(ev.id)}`;
+    $('open').textContent = ev.visibility === 'OPEN' ? (ev.full ? 'Join the waitlist' : 'Get on the list') : 'Ask to come';
     if (ev.cancelled || over) $('open').hidden = true;
     $('fine').textContent = ev.cancelled ? 'This event was cancelled.'
       : over ? 'This event is over.'
-      : ev.visibility === 'OPEN' ? 'Register in the app and you get your pass and the address right away.'
-      : 'Ask to come in the app. The host approves requests, then you get your pass and the address.';
+      : ev.visibility === 'OPEN' ? 'Sign in with your email and you get your pass and the address right away. No app needed.'
+      : 'Sign in with your email to ask. The host approves requests, then you get your pass and the address.';
     document.title = `${ev.title} · Buzz`;
     show('event');
   }
